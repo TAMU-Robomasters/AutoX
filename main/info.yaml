@@ -29,10 +29,7 @@
             our_team_color: 'red' # 'red' or 'blue'
             filter_team_color: true
             mode: development
-            process_name: cv_dark
-            bot: sentry # sentry or standard
             hardware:
-                board: laptop
                 camera: null # "realsense" or "zed"
                 camera_has_depth: false
                 camera_has_pose: false
@@ -40,16 +37,12 @@
                 camera_has_gyro: false
                 flip_camera: false
             model:
-                load_from_pickle: false
                 which_model: yolo_v8 
                 hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]
                 minimum_confidence: 0.25 # should be a value between 0-1
                 # ^ minimum conf not applied when using tensor_rt
                 input_dimension: 416
             aiming:
-                confidence_box_height: 0.5 # 0.4 = 40% percent of image height
-                confidence_box_width: 0.4 # percent
-                
                 # Default
                 color_stream_width: 848
                 color_stream_height: 480
@@ -58,21 +51,11 @@
                 stream_framerate: 60
                 min_depth: 0.2
                 max_depth: 5.0
-                grid_size: 4
-                model_fps: 30
                 
                 # Shooting Logic
                 min_range: 0.2 # units? meters?
                 max_range: 5
 
-                # power rune
-                blue_light: [50,40,230]
-                blue_dark: [130,255,255]
-                area_arrow_bound: [30,500]
-                center_image_offset: 20
-                min_area: 400
-                r_timer: 10
-                
             videostream:
                 simulation:
                     grab_method: 'next_frame' # 'next_frame', 'latest_frame', 'threaded_frame'
@@ -81,7 +64,6 @@
                     threaded_update_rate: 0.001
                 
                 testing:
-                    record_time: 10 # seconds to record for
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
                 disable_all_logging: false
