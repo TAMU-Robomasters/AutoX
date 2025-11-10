@@ -1,0 +1,235 @@
+# NOTE: names in parentheses are special, all other names are not!
+(project):    
+    # a central place for filepaths
+    (path_to):
+        main_folder:  ./
+        project_root: ../
+        main_test_video: &main_test_video ../data/test.avi
+        video_output:              ../result.do_not_sync.mp4
+        permanent_storage:         ./subsystems/log/permanent_storage.json
+        record_video_output_color: ./subsystems/log/videos/fall24testing
+        kalman_video:              ./kalman_video.do_not_sync.mp4
+        npy_frames:                ./scripts/data1 # replace with whichever frame set you want to use in the source/scripts/data<num> directory
+        # model
+        datasets: ./subsystems/modeling/datasets.ignore/
+        rune_example: ../data/rune_example.png
+        model: ./subsystems/modeling/model/yolov4-tiny-416
+        yolo_to_onnx: ./subsystems/modeling/model/yolo_to_onnx.py
+        tensorrt_so_file: ./subsystems/modeling/plugins/libyolo_layer.so
+        autoboot_id: ../commands/xavier/boot_control/autoboot_id
+        yolo_v8:
+            settings: ./subsystems/modeling/model/yolov8/yolov8.yaml
+            # pytorch_model: ./subsystems/modeling/model/yolov8/011723_v8n.pt
+            pytorch_model: ./subsystems/modeling/model/yolov8/011823_v8m.pt
+            # tensor_rt_engine: ./subsystems/modeling/model/yolov8/011823_v8m_min.engine
+            tensor_rt_engine: ./subsystems/modeling/model/yolov8/062223_v8m.engine
+            # pytorch_model: ./subsystems/modeling/model/yolov8//012523_plt_v8n.pt
+            # tensor_rt_plugin: ./subsystems/modeling/plugins/yolo_v7_plugins/libmyplugins.so
+    
+    # this file will be generated automatically
+    (local_data): ./local_data.ignore.yaml
+            # this^ is where you choose which profile(s)
+            # and is where to store auth tokens and other secrets
+    
+    (profiles):
+        (default):
+            our_team_color: 'red' # 'red' or 'blue'
+            filter_team_color: true
+            mode: development
+            process_name: cv_dark
+            bot: sentry # sentry or standard
+            hardware:
+                board: laptop
+                camera: null # "realsense" or "zed"
+                camera_has_depth: false
+                camera_has_pose: false
+                camera_has_acceleration: false
+                camera_has_gyro: false
+                flip_camera: false
+            model:
+                load_from_pickle: false
+                which_model: yolo_v8 
+                hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]
+                minimum_confidence: 0.25 # should be a value between 0-1
+                # ^ minimum conf not applied when using tensor_rt
+                input_dimension: 416
+            aiming:
+                confidence_box_height: 0.5 # 0.4 = 40% percent of image height
+                confidence_box_width: 0.4 # percent
+                
+                # Default
+                color_stream_width: 848
+                color_stream_height: 480
+                depth_stream_width: 848
+                depth_stream_height: 480
+                stream_framerate: 60
+                min_depth: 0.2
+                max_depth: 5.0
+                grid_size: 4
+                model_fps: 30
+                
+                # Shooting Logic
+                min_range: 0.2 # units? meters?
+                max_range: 5
+
+                # power rune
+                blue_light: [50,40,230]
+                blue_dark: [130,255,255]
+                area_arrow_bound: [30,500]
+                center_image_offset: 20
+                min_area: 400
+                r_timer: 10
+                
+            videostream:
+                simulation:
+                    grab_method: 'next_frame' # 'next_frame', 'latest_frame', 'threaded_frame'
+                    assumed_framerate: 30 # frames per second
+                    input_file: *main_test_video
+                    threaded_update_rate: 0.001
+                
+                testing:
+                    record_time: 10 # seconds to record for
+                    record_interval: 0 # records one out of every x frames, <1 to not record
+            log:
+                disable_all_logging: false
+                disable_print: false
+                save_frame_to_file: false
+                display_live_frames: false
+                save_depth: false
+                estimated_framerate: 40 # based on yolov8 and recent tests. Not the worst thing if this number is wrong (even very wrong)
+                save_rate: 20 # once every __ frames
+            
+            communication:
+                timeout: 0.05
+                serial_baudrate: 115200
+                serial_port: null
+                
+            zed:
+                resolution: "HD720"       # HD2K, HD1080, HD720, VGA, LAST
+                depth_mode: "PERFORMANCE" # ULTRA, QUALITY, NEURAL, PERFORMANCE, NONE, LAST
+                unit:       "METER"       # CENTIMETER, FOOT, INCH, LAST, METER, MILLIMETER
+                calibration:
+                    brightness:  2
+                    contrast:    8
+                    hue:         0
+                    saturation:  8
+                    sharpness:   8
+                    gamma:       7
+                    gain:       50
+                    exposure:    3
+            
+            realsense_settings: null
+        
+        # 
+        # optionals (which are combined/merged with defaults)
+        #
+        SENTRY:
+            bot: sentry
+        
+        STANDARD:
+            bot: standard
+        
+        GPU=NONE:
+            model:
+                hardware_acceleration: 'cpu'
+        GPU=TENSOR_RT: &tensor_rt
+            model:
+                hardware_acceleration: "tensor_rt"
+        GPU=REGULAR: &gpu
+            model:
+                hardware_acceleration: "gpu"
+        GPU: *gpu
+        TRT: *tensor_rt
+        
+        
+        V8:
+            model:
+                which_model: yolo_v8
+        
+
+        BOARD=XAVIER:
+            hardware:
+                camera: realsense
+            model:
+                hardware_acceleration: "tensor_rt"
+            communication:
+                serial_port: "/dev/ttyTHS0" # UART serial 0 works but try 1
+            log:
+                save_frame_to_file: false
+        BOARD=LAPTOP:
+            communication:
+                serial_port: null
+            log:
+                save_rate: 1 # every frame (1 frame per frame)
+                save_frame_to_file: true
+        
+            
+        CAMERA=ZED:
+            hardware:
+                camera: zed
+                camera_has_depth: true
+                camera_has_pose: true
+            aiming:
+                # zed stream width/height pulled from camera on initialization
+                stream_framerate: 30
+                min_depth: 0.3
+                max_depth: 10.0
+        CAMERA=REALSENSE:
+            hardware:
+                camera: realsense
+                camera_has_depth: true
+                camera_has_pose: false
+                camera_has_acceleration: true
+                camera_has_gyro: true
+            aiming:
+                color_stream_width: 960
+                color_stream_height: 540
+                depth_stream_width: 848
+                depth_stream_height: 480
+                stream_framerate: 60
+                min_depth: 0.2
+                max_depth: 10.0
+        CAMERA=NONE:
+            hardware:
+                camera: null
+        
+        FLIP_CAMERA:
+            hardware:
+                flip_camera: true
+
+        GUI:
+            log:
+                display_live_frames: true
+        
+        
+        SHOWTIME:
+            mode: production
+            log:
+                disable_all_logging: true
+                disable_print: false
+                save_frame_to_file: false
+                display_live_frames: false
+
+        PERF:
+            log:
+                disable_all_logging: false
+                display_live_frames: false
+                save_frame_to_file: false
+
+        LOG:
+            log:
+                disable_all_logging: false
+                save_rate: 1 # every frame (1 frame per frame)
+                save_frame_to_file: true
+                save_depth: false
+
+
+
+        BENCH:
+            mode: benchmark
+            stop_after: 1000 # frames
+        
+        WE_RED:
+            our_team_color: 'red'
+        WE_BLUE:
+            our_team_color: 'blue'
