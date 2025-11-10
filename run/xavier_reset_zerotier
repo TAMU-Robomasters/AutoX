@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+sudo systemctl stop zerotier-one
+
+sudo rm /var/lib/zerotier-one/identity.secret
+sudo rm /var/lib/zerotier-one/identity.public
+
+sudo service zerotier-one start
+
+echo "Waiting 10 seconds for ZeroTier service to start before attempting to join network..."
+sleep 10
+
+sudo zerotier-cli status
+sudo zerotier-cli join 6ab565387a3a531c
