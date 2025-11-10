@@ -7,24 +7,17 @@
         main_test_video: &main_test_video ../data/test.avi
         video_output:              ../result.do_not_sync.mp4
         permanent_storage:         ./subsystems/log/permanent_storage.json
-        record_video_output_color: ./subsystems/log/videos/fall24testing
-        kalman_video:              ./kalman_video.do_not_sync.mp4
-        npy_frames:                ./scripts/data1 # replace with whichever frame set you want to use in the source/scripts/data<num> directory
+        record_video_output_color: ./subsystems/log/color_vid
         # model
         datasets: ./subsystems/modeling/datasets.ignore/
-        rune_example: ../data/rune_example.png
         model: ./subsystems/modeling/model/yolov4-tiny-416
         yolo_to_onnx: ./subsystems/modeling/model/yolo_to_onnx.py
         tensorrt_so_file: ./subsystems/modeling/plugins/libyolo_layer.so
-        autoboot_id: ../commands/xavier/boot_control/autoboot_id
+        autoboot_id: ../run/autoboot_id
         yolo_v8:
             settings: ./subsystems/modeling/model/yolov8/yolov8.yaml
-            # pytorch_model: ./subsystems/modeling/model/yolov8/011723_v8n.pt
             pytorch_model: ./subsystems/modeling/model/yolov8/011823_v8m.pt
-            # tensor_rt_engine: ./subsystems/modeling/model/yolov8/011823_v8m_min.engine
             tensor_rt_engine: ./subsystems/modeling/model/yolov8/062223_v8m.engine
-            # pytorch_model: ./subsystems/modeling/model/yolov8//012523_plt_v8n.pt
-            # tensor_rt_plugin: ./subsystems/modeling/plugins/yolo_v7_plugins/libmyplugins.so
     
     # this file will be generated automatically
     (local_data): ./local_data.ignore.yaml
