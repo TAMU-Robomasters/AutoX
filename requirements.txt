@@ -1,9 +1,9 @@
-quik_config==1.7.9
-file_system_py==0.0.11
-serial==0.0.97
-matplotlib==3.6.1
-torch==1.12.1
-torchvision==0.13.1
+quik_config
+file_system_py
+serial
+matplotlib
+torch
+torchvision
 ultralytics==8.2.90
-numpy==1.24.4
-opencv-python==4.7.0.72
+numpy
+opencv-python
