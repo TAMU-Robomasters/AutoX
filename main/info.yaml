@@ -4,7 +4,7 @@
     (path_to):
         main_folder:  ./
         project_root: ../
-        main_test_video: &main_test_video ../data/test.avi
+        main_test_video: &main_test_video ../data/test.mp4
         video_output:              ../result.do_not_sync.mp4
         permanent_storage:         ./subsystems/log/permanent_storage.json
         record_video_output_color: ./subsystems/log/color_vid
