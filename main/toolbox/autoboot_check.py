@@ -1,7 +1,10 @@
 from toolbox.globals import config, path_to, info, print
+import os
 
 def throw_if_autoboot_is_already_running():
     print(f'''Checking if autoboot is already running...''')
+    if not os.path.isfile(path_to.autoboot_id):
+        return
     with open(path_to.autoboot_id,'r') as f:
         output = f.read()
         id_string = ""
