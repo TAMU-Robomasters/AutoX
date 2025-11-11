@@ -59,7 +59,7 @@
             filter_team_color: true
             mode: development
             hardware:
-                camera: null # "realsense" or "zed"
+                camera: null # "realsense" or "zed" or "usb_cam" 
                 camera_has_depth: false
                 camera_has_pose: false
                 camera_has_acceleration: false
