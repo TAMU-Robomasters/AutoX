@@ -6,6 +6,7 @@ from datetime import datetime as dt
 from toolbox.globals import config, print, runtime, absolute_path_to
 from toolbox.video_tools import VideoWriter
 from toolbox.image_tools import Image, rgb
+from super_map import LazyDict
 
 
 
@@ -49,7 +50,12 @@ def when_finished_processing_frame():
     color_image        = runtime.color_image
     depth_image        = runtime.depth_image
     prev_loop_time     = runtime.prev_loop_time
-    bounding_boxes     = runtime.modeling.bounding_boxes
+    bounding_boxes     = [
+        # should be: x_top_left, y_top_left, width, height format
+        # but might not be (cx sounds like center x)
+        (each.cx, each.cy, each.w, each.h)
+            for each in runtime.lights
+    ]
     
     # 
     # compute loop time
@@ -131,14 +137,19 @@ def visualize_depth_frame(depth_frame_array):
 
 def generate_image(fps=0):
     color_image        = runtime.color_image
-    found_robot        = runtime.modeling.found_robot
-    current_confidence = runtime.modeling.current_confidence
-    best_bounding_box  = runtime.modeling.best_bounding_box
-    bounding_boxes     = runtime.modeling.bounding_boxes
-    enemy_boxes        = runtime.modeling.enemy_boxes
-    center_point       = runtime.aiming.center_point
-    target_3d          = runtime.aiming.target_3d
-    status             = runtime.aiming.target_status
+    found_robot        = runtime.get("found_robot", False)
+    current_confidence = runtime.get("current_confidence", False)
+    best_bounding_box  = runtime.get("best_bounding_box", None)
+    bounding_boxes     = [
+        # should be: x_top_left, y_top_left, width, height format
+        # but might not be (cx sounds like center x)
+        (each.cx, each.cy, each.w, each.h)
+            for each in runtime.lights
+    ]
+    enemy_boxes        = runtime.get("enemy_boxes", [])
+    center_point       = runtime.get("aiming",{}).get("center_point",None)
+    target_3d          = runtime.get("aiming",{}).get("target_3d",None)
+    status             = runtime.get("aiming",{}).get("target_status",LazyDict(name=""))
     
     image = Image(runtime.color_image)
 

@@ -161,3 +161,6 @@ class VideoStream:
             print("Saving Recorded Video")
             self.video_output.release()
             print("Finished Saving Video")
+    
+    def get_intrinsics(self):
+        return config.classical.distortion_matrix, config.classical.cam_matrix

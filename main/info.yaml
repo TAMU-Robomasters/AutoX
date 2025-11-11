@@ -5,9 +5,11 @@
         main_folder:  ./
         project_root: ../
         main_test_video: &main_test_video ../data/test.mp4
+        icons_folder: ../data/icons
         video_output:              ../result.do_not_sync.mp4
         permanent_storage:         ./subsystems/log/permanent_storage.json
         record_video_output_color: ./subsystems/log/color_vid
+        calibration_presets: ./subsystems/video_streaming/calibration/presets
         # model
         datasets: ./subsystems/modeling/datasets.ignore/
         model: ./subsystems/modeling/model/yolov4-tiny-416
@@ -26,6 +28,33 @@
     
     (profiles):
         (default):
+            debug: true
+            classical:
+                cam_width: 1920
+                cam_height: 1080
+                cam_fps: 90
+                cam_exposure: 80
+
+                # image processing
+                blue_thresh: [ 215, 240 ]
+                red_thresh: [ 215, 240 ]
+
+                # light detection
+                angle_diff_multiplier: 1
+                misalignment_multiplier: 2
+                expected_distance_multiplier: 0.5
+                height_ratio_multiplier: 1
+
+                angle_diff_thresh: 45
+                misalignment_thresh: 30
+                height_ratio_thresh: [ 0.5, 2.0 ]
+                score_thresh: 50
+
+                # icon detection
+                icon_adaptive_thresh: [ 101, -5 ]
+                icon_tolerance: 80
+                show_icon_filters: false
+            
             our_team_color: 'red' # 'red' or 'blue'
             filter_team_color: true
             mode: development

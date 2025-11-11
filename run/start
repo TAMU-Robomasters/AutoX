@@ -1,3 +1,5 @@
+#!/usr/bin/env sh
+
 python3 ./main/main.py -- @BOARD=XAVIER @CAMERA=REALSENSE @WE_BLUE 
 # python3 ./main/main.py -- @BOARD=XAVIER @CAMERA=REALSENSE @WE_RED
 # python3 ./main/main.py -- @BOARD=XAVIER @CAMERA=REALSENSE @WE_RED @SHOWTIME

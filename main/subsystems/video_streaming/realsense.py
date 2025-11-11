@@ -152,6 +152,34 @@ class VideoStream:
                     yield frame_data
             return wrapper()
     
+    def get_intrinsics(self):
+        ctx = rs.context()
+        devices = ctx.query_devices()
+        if len(devices) == 0:
+            raise RuntimeError("No RealSense device connected")
+        dev = devices[0]
+
+        try:
+            color_sensor = dev.query_sensors()[1]
+        except Exception as e:
+            raise RuntimeError("Color sensor not found")
+
+        try:
+            vsp = color_sensor.get_cam_profiles()[0].as_video_cam_profile()
+        except Exception as e:
+            raise RuntimeError("Video cam profile not found")
+
+        intr = vsp.get_intrinsics()
+
+        # camera intrinsics
+        dist = np.array(intr.coeffs)
+
+        cam_matrix = np.array([[intr.fx, 0, intr.ppx],
+                               [0, intr.fy, intr.ppy],
+                               [0, 0, 1]])
+        
+        return dist, cam_matrix
+    
     def get_depth_at_point(self, point):
         # aim_start = perf_counter()
         # print("color point:", point)

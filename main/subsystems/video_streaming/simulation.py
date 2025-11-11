@@ -3,8 +3,6 @@ import itertools
 # project imports
 from toolbox.video_tools import Video
 from toolbox.globals import path_to, config, print
-from toolbox.video_tools import Video
-from toolbox.globals import path_to, config, print
 import numpy as np
 
 simulation = config.videostream.simulation
@@ -56,6 +54,11 @@ class VideoStream:
         
     def save_video_if_needed(self):
         pass
+    
+    def get_intrinsics(self):
+        distortion_matrix = np.load(f'{path_to.calibration_presets}/dist.pkl', allow_pickle=True)
+        camera_matrix = np.load(f'{path_to.calibration_presets}/camera_matrix.pkl', allow_pickle=True)
+        return distortion_matrix, camera_matrix
 
 
 from time import sleep

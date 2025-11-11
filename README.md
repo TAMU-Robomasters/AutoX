@@ -47,34 +47,3 @@ cd cv_lite
 sudo ./run/xavier_reset_zerotier
 sudo ./run/xavier_setup_boot_script.js
 ```
-
-# Runtime Variable
-
-Here's a reference of all the data in `runtime` which you can grab basically anytime.
-
-```py
-runtime.aiming
-runtime.aiming.center_point
-runtime.aiming.target_3d
-runtime.aiming.target_status
-
-runtime.modeling
-runtime.modeling.best_bounding_box
-runtime.modeling.bounding_boxes
-runtime.modeling.confidences
-runtime.modeling.current_confidence
-runtime.modeling.enemy_boxes
-runtime.modeling.found_robot
-
-runtime.camera
-runtime.camera.frame
-runtime.camera.acceleration # only availiable for the D435i
-runtime.camera.gyro # only availiable for the D435i
-
-runtime.color_image
-runtime.depth_image
-runtime.frame_number
-runtime.prev_loop_time
-runtime.screen_center
-runtime.total_fps
-```

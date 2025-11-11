@@ -4,6 +4,7 @@ import os
 def throw_if_autoboot_is_already_running():
     print(f'''Checking if autoboot is already running...''')
     if not os.path.isfile(path_to.autoboot_id):
+        print(f'''nope''')
         return
     with open(path_to.autoboot_id,'r') as f:
         output = f.read()
