@@ -1,9 +1,0 @@
-quik_config
-file_system_py
-serial
-matplotlib
-torch
-torchvision
-ultralytics==8.2.90
-numpy
-opencv-python

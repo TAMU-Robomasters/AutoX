@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-ps aux | grep -v $$ | grep -v grep |  grep -E "cv_dark|cv_lite" | awk '{ print $2 }' | sudo xargs kill -9 2>/dev/null
-ps aux | grep -v $$ | grep -v grep |  grep -E "cv_dark|cv_lite" | awk '{ print $2 }' | sudo xargs kill -9 2>/dev/null
-ps aux | grep -v $$ | grep -v grep |  grep -E "cv_dark|cv_lite" | awk '{ print $2 }' | sudo xargs kill -9 2>/dev/null

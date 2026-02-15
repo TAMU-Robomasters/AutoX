@@ -618,3 +618,10 @@ settings/home/.gitconfig
 settings/home/.mongorc.js
 settings/home/.ungitrc
 settings/home/.vuerc
+
+
+# 99% sure the above is AI generated (we don't use fortran :skull:), 
+# feel free to modify to whatever you think is right.
+
+# Ruff
+.ruff_cache/
