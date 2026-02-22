@@ -5,7 +5,7 @@
 import ssl
 import time
 
-import torch
+# import torch
 from quik_config import find_and_load
 from super_map import LazyDict
 
@@ -52,16 +52,16 @@ else:
         kwargs["flush"] = True
         original_print(*args, **kwargs)
 
-    def print_synchronized(*args, **kwargs):
-        """Force writing to a file (slows down program but makes log files update immediately)."""
-        kwargs["flush"] = True
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        original_print(*args, **kwargs)
+#     def print_synchronized(*args, **kwargs):
+#         """Force writing to a file (slows down program but makes log files update immediately)."""
+#         kwargs["flush"] = True
+#         if torch.cuda.is_available():
+#             torch.cuda.synchronize()
+#         original_print(*args, **kwargs)
 
 
-def time_synchronized():
-    """Pytorch-accurate time."""
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-    return time.time()
+# def time_synchronized():
+#     """Pytorch-accurate time."""
+#     if torch.cuda.is_available():
+#         torch.cuda.synchronize()
+#     return time.time()

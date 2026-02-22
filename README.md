@@ -12,8 +12,8 @@
 - run `git pull`
 
 ### How do I get this code to run?
-- Run `. .venv/bin/activate` and `python main.py`
-- Or run `uv run main.py`
+- Run `. .venv/bin/activate` and `python main.py @CAMERA=WEBCAM`
+- Or run `uv run main.py @CAMERA=WEBCAM`
 
 ### What is this repo?
 
