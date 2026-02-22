@@ -1,6 +1,6 @@
 ### How to setup code
 - git clone
-Install [uv](https://docs.astral.sh/uv/)
+- Install [uv](https://docs.astral.sh/uv/)
     - Mac/Linux/WSL
     `curl -LsSf https://astral.sh/uv/install.sh | sh`
     - Windows
