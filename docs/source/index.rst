@@ -1,19 +1,12 @@
-.. AutoX documentation master file, created by
-   sphinx-quickstart on Wed Jan 28 19:45:12 2026.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-AutoX documentation
+AutoX Documentation
 ===================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
+AutoX is a framework for ARC to make running and managing multiple processes easier.
+It is designed for the TAMU Robomasters team, providing computer vision infrastructure
+for robotics on NVIDIA Jetson hardware.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :caption: Contents:
 
    api
-

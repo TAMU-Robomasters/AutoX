@@ -625,3 +625,6 @@ settings/home/.vuerc
 
 # Ruff
 .ruff_cache/
+
+# Docs build
+docs/build/
