@@ -1,32 +1,10 @@
 """A singleton used to store information about the world (i.e. enemy positions) for all processes to access."""
 
-from dataclasses import dataclass
-from typing import Optional
-
-import numpy as np
-
-from src.pipelines.aim.context import AutoAimContext
-
-
-# TODO: profile this to make sure it's not slow
-@dataclass(frozen=True)  # make immutable
-class EnemyRobot:
-    """Enemy robot stats."""
-
-    panel_position_1: Optional[np.ndarray]
-    panel_orientation_1: Optional[np.ndarray]
-    panel_position_2: Optional[np.ndarray]
-    panel_orientation_2: Optional[np.ndarray]
-    health: Optional[float]
-
-
-@dataclass(frozen=True)
-class CurrentWorldModel:
-    """Model of the current world state."""
-
-    enemy_sentry: Optional[EnemyRobot]
-    enemy_hero: Optional[EnemyRobot]
-    enemy_standard: Optional[EnemyRobot]
+from src.types.autoaim import AutoAimContext
+from src.types.world_model import (  # noqa: F401 – re-exported
+    CurrentWorldModel,
+    EnemyRobot,
+)
 
 
 # TODO: make pipelines create their own update methods as multiprocessing safe modules

@@ -1,8 +1,10 @@
+"""Video stream from a standard USB webcam using OpenCV."""
+
 import cv2 as cv
 import numpy as np
 
-from src.toolbox.globals import path_to
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
+from src.toolbox.globals import path_to
 
 
 class WebCamVideoStream(VideoStream):
@@ -36,9 +38,9 @@ class WebCamVideoStream(VideoStream):
         return self.intrinsics
 
     @property
-    def height(self) -> int:
+    def height(self) -> int:  # noqa: D102
         return int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
 
     @property
-    def width(self) -> int:
+    def width(self) -> int:  # noqa: D102
         return int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))

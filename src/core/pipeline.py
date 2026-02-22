@@ -3,8 +3,7 @@
 from abc import ABC
 from typing import Generic, List, TypeVar
 
-from src.core.context import Context
-from src.core.module import Module
+from src.core.module import Context, Module
 
 T = TypeVar("T", bound="Context")  # type must inherit from Context
 

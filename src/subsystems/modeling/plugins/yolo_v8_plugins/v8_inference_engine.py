@@ -1,3 +1,7 @@
+# ruff: noqa
+# mypy: ignore-errors
+# TODO: see if we can replace all this with ultralytics
+
 from collections import namedtuple
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
@@ -13,21 +17,22 @@ class TRTModule(torch.nn.Module):
         trt.int8: torch.int8,
         trt.int32: torch.int32,
         trt.float16: torch.float16,
-        trt.float32: torch.float32
+        trt.float32: torch.float32,
     }
 
-    def __init__(self, weight: Union[str, Path],
-                 device: Optional[torch.device]) -> None:
+    def __init__(
+        self, weight: Union[str, Path], device: Optional[torch.device]
+    ) -> None:
         super(TRTModule, self).__init__()
         self.weight = Path(weight) if isinstance(weight, str) else weight
-        self.device = device if device is not None else torch.device('cuda:0')
+        self.device = device if device is not None else torch.device("cuda:0")
         self.stream = torch.cuda.Stream(device=device)
         self.__init_engine()
         self.__init_bindings()
 
     def __init_engine(self) -> None:
         logger = trt.Logger(trt.Logger.INFO)
-        trt.init_libnvinfer_plugins(logger, namespace='')
+        trt.init_libnvinfer_plugins(logger, namespace="")
         with trt.Runtime(logger) as runtime:
             model = runtime.deserialize_cuda_engine(self.weight.read_bytes())
 
@@ -54,7 +59,7 @@ class TRTModule(torch.nn.Module):
 
     def __init_bindings(self) -> None:
         dynamic = False
-        Tensor = namedtuple('Tensor', ('name', 'dtype', 'shape'))
+        Tensor = namedtuple("Tensor", ("name", "dtype", "shape"))
         inp_info = []
         out_info = []
         for i, name in enumerate(self.input_names):
@@ -81,21 +86,17 @@ class TRTModule(torch.nn.Module):
         self.out_infp = out_info
 
     def set_desired(self, desired: Optional[Union[List, Tuple]]):
-        if isinstance(desired,
-                      (list, tuple)) and len(desired) == self.num_outputs:
+        if isinstance(desired, (list, tuple)) and len(desired) == self.num_outputs:
             self.idx = [self.output_names.index(i) for i in desired]
 
     def forward(self, *inputs) -> Union[Tuple, torch.Tensor]:
         assert len(inputs) == self.num_inputs
-        contiguous_inputs: List[torch.Tensor] = [
-            i.contiguous() for i in inputs
-        ]
+        contiguous_inputs: List[torch.Tensor] = [i.contiguous() for i in inputs]
 
         for i in range(self.num_inputs):
             self.bindings[i] = contiguous_inputs[i].data_ptr()
             if self.is_dynamic:
-                self.context.set_binding_shape(
-                    i, tuple(contiguous_inputs[i].shape))
+                self.context.set_binding_shape(i, tuple(contiguous_inputs[i].shape))
 
         outputs: List[torch.Tensor] = []
 
@@ -103,9 +104,9 @@ class TRTModule(torch.nn.Module):
             j = i + self.num_inputs
             if self.is_dynamic:
                 shape = tuple(self.context.get_binding_shape(j))
-                output = torch.empty(size=shape,
-                                     dtype=self.out_info[i].dtype,
-                                     device=self.device)
+                output = torch.empty(
+                    size=shape, dtype=self.out_info[i].dtype, device=self.device
+                )
             else:
                 output = self.output_tensor[i]
             self.bindings[j] = output.data_ptr()
@@ -120,15 +121,17 @@ class TRTModule(torch.nn.Module):
 def init(engine_filepath, device):
     Engine = TRTModule(engine_filepath, device)
     H, W = Engine.inp_info[0].shape[-2:]
-    Engine.set_desired(['num_dets', 'bboxes', 'scores', 'labels'])
+    Engine.set_desired(["num_dets", "bboxes", "scores", "labels"])
     return Engine
+
 
 def infer(image_tensor, Engine):
     if torch.cuda.is_available():
-        torch.cuda.synchronize() # required, as i found out the hard way
+        torch.cuda.synchronize()  # required, as i found out the hard way
     data = Engine(image_tensor)
     output = trim_and_recombine(data)
     return output
+
 
 def trim_and_recombine(data: Tuple[Tensor, Tensor, Tensor, Any], **kwargs):
     assert len(data) == 4

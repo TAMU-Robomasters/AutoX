@@ -2,6 +2,7 @@
 
 import cv2 as cv
 import numpy as np
+
 from src.subsystems.video_streaming.video_stream import video_stream
 
 
@@ -40,6 +41,7 @@ class Display:
         self.windows[name] = Window(image)
 
     def show_windows(self):
+        """Show the image in each window to the screen."""
         for name in self.windows:
             cv.imshow(name, self.windows[name].img)
             cv.waitKey(1)
@@ -70,7 +72,7 @@ class Window:
             shift=0,
         )
         # TODO warn out of bounds
-    
+
     def add_contour(self, contour, color=GREEN, thickness=2):
         """Add a contour to the image."""
         color = _rgb_to_bgr(*color)

@@ -31,7 +31,7 @@ class BufferlesCvCapture:
         self.cap = cv.VideoCapture(pipeline, cv.CAP_GSTREAMER)
         if not self.cap.isOpened():
             raise Exception("Could not open video.")
-        self.q = queue.Queue()
+        self.q: queue.Queue[np.ndarray] = queue.Queue()
         t = threading.Thread(target=self._reader)
         t.daemon = True
         t.start()

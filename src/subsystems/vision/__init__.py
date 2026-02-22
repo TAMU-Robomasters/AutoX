@@ -1,0 +1,1 @@
+from .classical_detector.module import ClassicalDetectorModule

@@ -1,7 +1,7 @@
 [project]
 name = "AutoX"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.1.0a0"
+description = "A framework for ARC to make running and managing multiple processes easier"
 readme = "README.md"
 requires-python = "==3.10.*"
 
@@ -16,6 +16,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.1",
     # docs gen
     "myst-parser>=4.0.1",
     "pre-commit>=4.5.1",
@@ -24,17 +25,42 @@ dev = [
     "sphinx>=8.1.3",
     "sphinx-autodoc-typehints>=3.0.1",
     "sphinx-book-theme>=1.1.4",
-    "ty>=0.0.14",
 ]
 
 [tool.ruff.lint]
-extend-select = [
+select = [
   "D",   # pydocstyle
   "I", # sort imports
+]
+ignore = [
+    "D105", # no doc string for magic or dunder methods
+    "D107", # no doc string for __init__
+    "D104", # no doc string for __init__.py
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.mypy]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tensorrt",
+    "pycuda.*",
+    "pyrealsense2",
+    "ultralytics.*",
+    "onnx",
+    "calibrator",
+    "file_system_py",
+    "cfgv",
+    "serial",
+    "quik_config",
+    "super_map",
+    "iceoryx2",
+    "iceoryx2.*",
+]
+ignore_missing_imports = true
 
 [tool.ty.analysis]
 # Suppress errors for all jetson packages

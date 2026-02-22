@@ -3,5 +3,14 @@
     "python.envFile": "${workspaceFolder}/.venv",
     // Test settings
     "python.testing.pytestEnabled": true,
-    "python.testing.cwd": "${workspaceFolder}/tests"
+    "python.testing.cwd": "${workspaceFolder}/tests",
+    "chat.tools.terminal.autoApprove": {
+        "mypy": true,
+        "/^python -m mypy src --exclude 'src/types' 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        ".": true,
+        "touch": true
+    }
 }

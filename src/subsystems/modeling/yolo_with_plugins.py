@@ -1,3 +1,6 @@
+# ruff: noqa
+# mypy: ignore-errors
+# TODO: see if we can replace all this with ultralytics
 """yolo_with_plugins.py
 
 Implementation of TrtYOLO class with the yolo_layer plugins.
@@ -92,7 +95,9 @@ def _nms_boxes(detections, nms_threshold):
     return keep
 
 
-def _postprocess_yolo(trt_outputs, img_w, img_h, conf_th, nms_threshold, input_shape, letter_box=False):
+def _postprocess_yolo(
+    trt_outputs, img_w, img_h, conf_th, nms_threshold, input_shape, letter_box=False
+):
     """Postprocess TensorRT outputs.
 
     # Args
@@ -236,11 +241,15 @@ def do_inference_v2(context, bindings, inputs, outputs, stream):
     # Return only the host outputs.
     return [out.host for out in outputs]
 
+
 class TrtYOLO(object):
     """TrtYOLO class encapsulates things needed to run TRT YOLO."""
 
     def _load_engine(self):
-        with open(self.path_to_model, "rb") as f, trt.Runtime(self.trt_logger) as runtime:
+        with (
+            open(self.path_to_model, "rb") as f,
+            trt.Runtime(self.trt_logger) as runtime,
+        ):
             return runtime.deserialize_cuda_engine(f.read())
 
     def __init__(
@@ -272,9 +281,9 @@ class TrtYOLO(object):
         self.engine = self._load_engine()
 
         try:
-            runtime.tensorrt_context = (
-                self.context
-            ) = self.engine.create_execution_context()
+            runtime.tensorrt_context = self.context = (
+                self.engine.create_execution_context()
+            )
             # runtime.tensorrt_context is only for tring to fix: https://community.stereolabs.com/t/zed-tensorrt-problems-invalidating-cuda-context-handle/1099/3
             self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(
                 self.engine

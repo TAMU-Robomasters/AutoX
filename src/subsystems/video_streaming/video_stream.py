@@ -27,12 +27,12 @@ class VideoStream(ABC):
     @abstractmethod
     def height(self) -> int:
         """Get height."""
-    
+
     @property
     @abstractmethod
     def width(self) -> int:
         """Get width."""
-    
+
     @property
     def center(self) -> Tuple[int, int]:
         """Get u,v pixel center."""

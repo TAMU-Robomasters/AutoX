@@ -15,9 +15,7 @@ repos:
     # Run the formatter.
     - id: ruff-format
 
-- repo: local
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: ''  # Use the sha / tag you want to point at
   hooks:
-    - id: ty
-      name: ty check
-      entry: uvx ty check . --ignore unresolved-import
-      language: python
+  -   id: mypy

@@ -1,0 +1,87 @@
+"""Classic vision processing module for auto-aim pipeline.
+
+Capable of finding position, orientation, and icon of armor panels.
+"""
+
+from typing import List
+
+import numpy as np
+
+from src.core.module import Module, real
+from src.subsystems.display import CYAN, display
+from src.subsystems.video_streaming.video_stream import video_stream
+from src.subsystems.vision.classical_detector import (
+    armor,
+    frame_proccesing,
+    icon_detection,
+    pnp,
+)
+from src.toolbox.geometry_tools import BoundingBox
+from src.types.autoaim import ArmorPanel, AutoAimContext
+
+
+def _process_pairs(pairs, frame) -> List[ArmorPanel]:
+    """Filter light pairs into validated ArmorPanel instances."""
+    panels: List[ArmorPanel] = []
+    for pair in pairs:
+        panel = armor.armour_corners(pair)
+        if not icon_detection.icon_detection(panel, frame):
+            continue
+        try:
+            pnp.get_cord(panel)
+        except Exception as e:
+            print(f"Error in get_cord for panel: {e}")
+            continue
+        # remove panels that are yawed too much
+        if abs(np.degrees(panel.rvec[2])) < 40:
+            panels.append(
+                ArmorPanel(
+                    icon=panel.id if hasattr(panel, "id") else None,
+                    position=panel.tvec if hasattr(panel, "tvec") else None,
+                    orientation=panel.rvec if hasattr(panel, "rvec") else None,
+                    bbx=BoundingBox.from_points(
+                        top_left=panel.corners[0][0],
+                        bottom_right=panel.corners[2][0],
+                    ),
+                )
+            )
+    return panels
+
+
+class ClassicalDetectorModule(Module[AutoAimContext]):
+    """Detects armor panels using classical computer-vision techniques."""
+
+    def __init__(self):
+        super().__init__(
+            name="classical_detector",
+            inputs=[],
+            outputs=["panels"],
+        )
+
+    @real(requires="camera")
+    def _run_detect(self, ctx: AutoAimContext) -> AutoAimContext:
+        """Process the current video frame and populate *ctx.panels*."""
+        frame = video_stream.get_frame()
+        display.windows["main"].img = frame
+        assert frame is not None, "No frame received from video stream."
+
+        contours = frame_proccesing.frame_process(frame)
+        lights = armor.bounding_boxes(contours, frame)
+
+        # Not enough lights to form a panel
+        if len(lights) <= 1:
+            ctx.panels = None
+            return ctx
+
+        try:
+            pairs = armor.pairing(lights)
+        except Exception as e:
+            print(f"Error in pairing: {e}")
+            ctx.panels = None
+            return ctx
+
+        panels = _process_pairs(pairs, frame)
+        for panel in panels:
+            display.windows["main"].add_bounding_box(bounding_box=panel.bbx, color=CYAN)
+        ctx.panels = panels if panels else None
+        return ctx

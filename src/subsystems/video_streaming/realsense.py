@@ -27,6 +27,16 @@ class RealSenseVideoStream(VideoStream):
     Provides color frames, depth queries and simple 3D reprojection helpers.
     """
 
+    @property
+    def height(self) -> int:
+        """Get height."""
+        return int(self.color_stream_height)
+
+    @property
+    def width(self) -> int:
+        """Get width."""
+        return int(self.color_stream_width)
+
     def __init__(self) -> None:
         """Initialize the RealSense pipeline and configure streams.
 
@@ -118,8 +128,8 @@ class RealSenseVideoStream(VideoStream):
             if (
                 config.hardware.flip_camera
             ):  # rotate 180 degrees and copy to avoid negative strides
-                return np.rot90(np.asanyarray(self.color_frame.get_data()), k=2).copy()
-            return np.asanyarray(self.color_frame.get_data())
+                return np.rot90(np.asanyarray(self.color_frame.get_data()), k=2).copy()  # type: ignore[attr-defined]
+            return np.asanyarray(self.color_frame.get_data())  # type: ignore[attr-defined]
         except Exception as error:
             print(error)
             print("VideoStream: error while getting frames:", error, sys.exc_info()[0])
@@ -166,7 +176,7 @@ class RealSenseVideoStream(VideoStream):
         if config.hardware.flip_camera:
             u = self.color_stream_width - u
             v = self.color_stream_height - v
-        depth: float = self.depth_frame.get_distance(u, v)  # ty:ignore[possibly-missing-attribute]
+        depth: float = self.depth_frame.get_distance(u, v)  # type: ignore[attr-defined]
         if depth < self.depth_min or depth > self.depth_max:
             return None
         return depth

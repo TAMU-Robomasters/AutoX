@@ -5,8 +5,8 @@ wraps a `Video` object and optionally supports threaded frame grabbing for
 testing code that expects a live camera source.
 """
 
-#TODO: FIXME to work with new codebase
- 
+# TODO: FIXME to work with new codebase
+
 from __future__ import annotations
 
 from threading import Thread
@@ -100,7 +100,7 @@ class SimulatedVideoStream(VideoStream):
 
         # Sequential path: iterate the video frames generator.
         if not hasattr(self, "_frame_iter") or self._frame_iter is None:
-            self._frame_iter: Iterator[Any] = iter(self.video_object.frames())
+            self._frame_iter = iter(self.video_object.frames())
             self._frame_count = 0
 
         try:
@@ -162,7 +162,7 @@ class CameraThreader:
     def update(self) -> None:
         """Thread loop: read frames and sleep according to ``update_rate``."""
         while not self.stopped:
-            frame = self.video_stream.get_frame()# FIXME
+            frame = self.video_stream.get_frame()  # FIXME
             if frame is None:
                 # No more frames available: terminate the loop.
                 break

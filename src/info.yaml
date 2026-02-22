@@ -103,6 +103,10 @@
                 estimated_framerate: 40 # based on yolov8 and recent tests. Not the worst thing if this number is wrong (even very wrong)
                 save_rate: 20 # once every __ frames
             
+            mock:
+                enable: false    # when true, modules use @mock methods instead of @real
+                hardware: []     # list of available hardware (e.g. ["jetson", "gpu"]). methods with @real(requires="X") fall back to mock if X is not listed here.
+
             communication:
                 timeout: 0.05
                 serial_baudrate: 115200
@@ -148,7 +152,7 @@
         CAMERA=WEBCAM:
             hardware:
                 camera: webcam
-                camera_index: 1
+                camera_index: 2
         
         
         V8:

@@ -1,30 +1,29 @@
 """Main thing for real."""
 
-
 #! check if this has multi threading
-from sympy.core.evalf import LG10
-from sympy.core.tests.test_priority import l
 from src.toolbox.autoboot_check import throw_if_autoboot_is_already_running
 from src.toolbox.globals import config
-
-
 
 
 def main():
     """Main function to run the armor detection and processing loop."""
     if config.mode != "production":
         throw_if_autoboot_is_already_running()
-    from src.processes.autoaim import AutoAimProcess
-    auto_aim: AutoAimProcess = AutoAimProcess()
+    from src.engines.autoaim import SimpleAutoAimEngine
 
-    from src.processes.count import CountProcess
-    count_process: CountProcess = CountProcess()
+    auto_aim: SimpleAutoAimEngine = SimpleAutoAimEngine()
+
+    from src.engines.count import CountEngine
+
+    count_process: CountEngine = CountEngine()
 
     count_process.start()
     auto_aim.start()
 
     import iceoryx2 as iox2
-    from src.ipc.log import LogMessage
+
+    from src.types.ipc import LogMessage
+
     iox2.set_log_level_from_env_or(iox2.LogLevel.Info)
     log_node = iox2.NodeBuilder.new().create(iox2.ServiceType.Ipc)
 
@@ -44,4 +43,3 @@ def main():
                 print("received log message:", data.contents)
             else:
                 break
-

@@ -1,3 +1,7 @@
+# ruff: noqa
+# mypy: ignore-errors
+# TODO: see if we can replace all this with ultralytics
+
 # yolo_to_onnx.py
 #
 # Copyright 1993-2019 NVIDIA Corporation.  All rights reserved.
@@ -85,7 +89,7 @@ class DarkNetParser(object):
         Keyword argument:
         cfg_file_path
         """
-        with open(cfg_file_path, 'r') as cfg_file:
+        with open(cfg_file_path, "r") as cfg_file:
             remainder = cfg_file.read()
             while remainder is not None:
                 layer_dict, layer_name, remainder = self._next_layer(remainder)
@@ -112,36 +116,36 @@ class DarkNetParser(object):
         Keyword argument:
         remainder -- a string with all raw text after the previously parsed layer
         """
-        remainder = remainder.split('[', 1)
-        while len(remainder[0]) > 0 and remainder[0][-1] == '#':
+        remainder = remainder.split("[", 1)
+        while len(remainder[0]) > 0 and remainder[0][-1] == "#":
             # handling commented-out layers
-            remainder = remainder[1].split('[', 1)
+            remainder = remainder[1].split("[", 1)
         if len(remainder) == 2:
             remainder = remainder[1]
         else:
             return None, None, None
-        remainder = remainder.split(']', 1)
+        remainder = remainder.split("]", 1)
         if len(remainder) == 2:
             layer_type, remainder = remainder
         else:
             return None, None, None
-        if remainder.replace(' ', '')[0] == '#':
-            remainder = remainder.split('\n', 1)[1]
+        if remainder.replace(" ", "")[0] == "#":
+            remainder = remainder.split("\n", 1)[1]
 
-        out = remainder.split('\n\n', 1)
+        out = remainder.split("\n\n", 1)
         if len(out) == 2:
             layer_param_block, remainder = out[0], out[1]
         else:
-            layer_param_block, remainder = out[0], ''
-        if layer_type == 'yolo':
+            layer_param_block, remainder = out[0], ""
+        if layer_type == "yolo":
             layer_param_lines = []
         else:
-            layer_param_lines = layer_param_block.split('\n')[1:]
-        layer_name = str(self.layer_counter).zfill(3) + '_' + layer_type
+            layer_param_lines = layer_param_block.split("\n")[1:]
+        layer_name = str(self.layer_counter).zfill(3) + "_" + layer_type
         layer_dict = dict(type=layer_type)
         if layer_type in self.supported_layers:
             for param_line in layer_param_lines:
-                param_line = param_line.lstrip().split('#')[0]
+                param_line = param_line.lstrip().split("#")[0]
                 if not param_line:
                     continue
                 param_type, param_value = self._parse_params(param_line)
@@ -155,18 +159,19 @@ class DarkNetParser(object):
         Keyword argument:
         param_line -- one parsed line within a layer block
         """
-        param_line = param_line.replace(' ', '')
-        param_type, param_value_raw = param_line.split('=')
+        param_line = param_line.replace(" ", "")
+        param_type, param_value_raw = param_line.split("=")
         param_value = None
-        if param_type == 'layers':
+        if param_type == "layers":
             layer_indexes = list()
-            for index in param_value_raw.split(','):
+            for index in param_value_raw.split(","):
                 layer_indexes.append(int(index))
             param_value = layer_indexes
         elif isinstance(param_value_raw, str) and not param_value_raw.isalpha():
             condition_param_value_positive = param_value_raw.isdigit()
-            condition_param_value_negative = param_value_raw[0] == '-' and \
-                param_value_raw[1:].isdigit()
+            condition_param_value_negative = (
+                param_value_raw[0] == "-" and param_value_raw[1:].isdigit()
+            )
             if condition_param_value_positive or condition_param_value_negative:
                 param_value = int(param_value_raw)
             else:
@@ -224,20 +229,21 @@ class ConvParams(object):
         and checks if the combination is valid.
         """
         assert suffix
-        assert param_category in ['bn', 'conv']
-        assert(suffix in ['scale', 'mean', 'var', 'weights', 'bias'])
-        if param_category == 'bn':
+        assert param_category in ["bn", "conv"]
+        assert suffix in ["scale", "mean", "var", "weights", "bias"]
+        if param_category == "bn":
             assert self.batch_normalize
-            assert suffix in ['scale', 'bias', 'mean', 'var']
-        elif param_category == 'conv':
-            assert suffix in ['weights', 'bias']
-            if suffix == 'bias':
+            assert suffix in ["scale", "bias", "mean", "var"]
+        elif param_category == "conv":
+            assert suffix in ["weights", "bias"]
+            if suffix == "bias":
                 assert not self.batch_normalize
-        param_name = self.node_name + '_' + param_category + '_' + suffix
+        param_name = self.node_name + "_" + param_category + "_" + suffix
         return param_name
 
+
 class UpsampleParams(object):
-    #Helper class to store the scale parameter for an Upsample node.
+    # Helper class to store the scale parameter for an Upsample node.
 
     def __init__(self, node_name, value):
         """Constructor based on the base node name (e.g. 86_Upsample),
@@ -252,8 +258,9 @@ class UpsampleParams(object):
 
     def generate_param_name(self):
         """Generates the scale parameter name for the Upsample node."""
-        param_name = self.node_name + '_' + 'scale'
+        param_name = self.node_name + "_" + "scale"
         return param_name
+
 
 class WeightLoader(object):
     """Helper class used for loading the serialized weights of a binary file stream
@@ -279,14 +286,11 @@ class WeightLoader(object):
         name = upsample_params.generate_param_name()
         shape = upsample_params.value.shape
         data = upsample_params.value
-        scale_init = helper.make_tensor(
-            name, TensorProto.FLOAT, shape, data)
-        scale_input = helper.make_tensor_value_info(
-            name, TensorProto.FLOAT, shape)
+        scale_init = helper.make_tensor(name, TensorProto.FLOAT, shape, data)
+        scale_input = helper.make_tensor_value_info(name, TensorProto.FLOAT, shape)
         initializer.append(scale_init)
         inputs.append(scale_input)
         return initializer, inputs
-
 
     def load_conv_weights(self, conv_params):
         """Returns the initializers with weights from the weights file and
@@ -298,24 +302,28 @@ class WeightLoader(object):
         inputs = list()
         if conv_params.batch_normalize:
             bias_init, bias_input = self._create_param_tensors(
-                conv_params, 'bn', 'bias')
+                conv_params, "bn", "bias"
+            )
             bn_scale_init, bn_scale_input = self._create_param_tensors(
-                conv_params, 'bn', 'scale')
+                conv_params, "bn", "scale"
+            )
             bn_mean_init, bn_mean_input = self._create_param_tensors(
-                conv_params, 'bn', 'mean')
+                conv_params, "bn", "mean"
+            )
             bn_var_init, bn_var_input = self._create_param_tensors(
-                conv_params, 'bn', 'var')
-            initializer.extend(
-                [bn_scale_init, bias_init, bn_mean_init, bn_var_init])
-            inputs.extend([bn_scale_input, bias_input,
-                           bn_mean_input, bn_var_input])
+                conv_params, "bn", "var"
+            )
+            initializer.extend([bn_scale_init, bias_init, bn_mean_init, bn_var_init])
+            inputs.extend([bn_scale_input, bias_input, bn_mean_input, bn_var_input])
         else:
             bias_init, bias_input = self._create_param_tensors(
-                conv_params, 'conv', 'bias')
+                conv_params, "conv", "bias"
+            )
             initializer.append(bias_init)
             inputs.append(bias_input)
         conv_init, conv_input = self._create_param_tensors(
-            conv_params, 'conv', 'weights')
+            conv_params, "conv", "weights"
+        )
         initializer.append(conv_init)
         inputs.append(conv_input)
         return initializer, inputs
@@ -325,10 +333,13 @@ class WeightLoader(object):
         Keyword argument:
         weights_file_path -- path to the weights file.
         """
-        weights_file = open(weights_file_path, 'rb')
+        weights_file = open(weights_file_path, "rb")
         length_header = 5
-        np.ndarray(shape=(length_header, ), dtype='int32',
-                   buffer=weights_file.read(length_header * 4))
+        np.ndarray(
+            shape=(length_header,),
+            dtype="int32",
+            buffer=weights_file.read(length_header * 4),
+        )
         return weights_file
 
     def _create_param_tensors(self, conv_params, param_category, suffix):
@@ -342,12 +353,15 @@ class WeightLoader(object):
         'weights' or 'bias')
         """
         param_name, param_data, param_data_shape = self._load_one_param_type(
-            conv_params, param_category, suffix)
+            conv_params, param_category, suffix
+        )
 
         initializer_tensor = helper.make_tensor(
-            param_name, TensorProto.FLOAT, param_data_shape, param_data)
+            param_name, TensorProto.FLOAT, param_data_shape, param_data
+        )
         input_tensor = helper.make_tensor_value_info(
-            param_name, TensorProto.FLOAT, param_data_shape)
+            param_name, TensorProto.FLOAT, param_data_shape
+        )
         return initializer_tensor, input_tensor
 
     def _load_one_param_type(self, conv_params, param_category, suffix):
@@ -361,18 +375,19 @@ class WeightLoader(object):
         """
         param_name = conv_params.generate_param_name(param_category, suffix)
         channels_out, channels_in, filter_h, filter_w = conv_params.conv_weight_dims
-        if param_category == 'bn':
+        if param_category == "bn":
             param_shape = [channels_out]
-        elif param_category == 'conv':
-            if suffix == 'weights':
+        elif param_category == "conv":
+            if suffix == "weights":
                 param_shape = [channels_out, channels_in, filter_h, filter_w]
-            elif suffix == 'bias':
+            elif suffix == "bias":
                 param_shape = [channels_out]
         param_size = np.product(np.array(param_shape))
         param_data = np.ndarray(
             shape=param_shape,
-            dtype='float32',
-            buffer=self.weights_file.read(param_size * 4))
+            dtype="float32",
+            buffer=self.weights_file.read(param_size * 4),
+        )
         param_data = param_data.flatten().astype(float)
         return param_name, param_data, param_shape
 
@@ -401,11 +416,7 @@ class GraphBuilderONNX(object):
         self.batch_size = 1
         self.route_spec = 0  # keeping track of the current active 'route'
 
-    def build_onnx_graph(
-            self,
-            layer_configs,
-            weights_file_path,
-            verbose=True):
+    def build_onnx_graph(self, layer_configs, weights_file_path, verbose=True):
         """Iterate over all layer configs (parsed from the DarkNet
         representation of YOLO), create an ONNX graph, populate it with
         weights from the weights file and return the graph definition.
@@ -421,30 +432,35 @@ class GraphBuilderONNX(object):
             if major_node_specs.name is not None:
                 self.major_node_specs.append(major_node_specs)
         # remove dummy 'route' and 'yolo' nodes
-        self.major_node_specs = [node for node in self.major_node_specs
-                                      if 'dummy' not in node.name]
+        self.major_node_specs = [
+            node for node in self.major_node_specs if "dummy" not in node.name
+        ]
         outputs = list()
         for tensor_name in self.output_tensors.keys():
-            output_dims = [self.batch_size, ] + \
-                self.output_tensors[tensor_name]
+            output_dims = [
+                self.batch_size,
+            ] + self.output_tensors[tensor_name]
             output_tensor = helper.make_tensor_value_info(
-                tensor_name, TensorProto.FLOAT, output_dims)
+                tensor_name, TensorProto.FLOAT, output_dims
+            )
             outputs.append(output_tensor)
         inputs = [self.input_tensor]
         weight_loader = WeightLoader(weights_file_path)
         initializer = list()
         # If a layer has config, add them to the initializer and input lists.
         for layer_name in self.param_dict.keys():
-            _, layer_type = layer_name.split('_', 1)
+            _, layer_type = layer_name.split("_", 1)
             config = self.param_dict[layer_name]
-            if layer_type == 'convolutional':
+            if layer_type == "convolutional":
                 initializer_layer, inputs_layer = weight_loader.load_conv_weights(
-                    config)
+                    config
+                )
                 initializer.extend(initializer_layer)
                 inputs.extend(inputs_layer)
-            elif layer_type == 'upsample':
+            elif layer_type == "upsample":
                 initializer_layer, inputs_layer = weight_loader.load_upsample_scales(
-                    config)
+                    config
+                )
                 initializer.extend(initializer_layer)
                 inputs.extend(inputs_layer)
         del weight_loader
@@ -453,12 +469,13 @@ class GraphBuilderONNX(object):
             name=self.model_name,
             inputs=inputs,
             outputs=outputs,
-            initializer=initializer
+            initializer=initializer,
         )
         if verbose:
             print(helper.printable_graph(self.graph_def))
-        model_def = helper.make_model(self.graph_def,
-                                      producer_name='NVIDIA TensorRT sample')
+        model_def = helper.make_model(
+            self.graph_def, producer_name="NVIDIA TensorRT sample"
+        )
         return model_def
 
     def _make_onnx_node(self, layer_name, layer_dict):
@@ -470,31 +487,35 @@ class GraphBuilderONNX(object):
         layer_name -- the layer's name (also the corresponding key in layer_configs)
         layer_dict -- a layer parameter dictionary (one element of layer_configs)
         """
-        layer_type = layer_dict['type']
+        layer_type = layer_dict["type"]
         if self.input_tensor is None:
-            if layer_type == 'net':
-                major_node_output_name, major_node_output_channels = self._make_input_tensor(
-                    layer_name, layer_dict)
-                major_node_specs = MajorNodeSpecs(major_node_output_name,
-                                                  major_node_output_channels)
+            if layer_type == "net":
+                major_node_output_name, major_node_output_channels = (
+                    self._make_input_tensor(layer_name, layer_dict)
+                )
+                major_node_specs = MajorNodeSpecs(
+                    major_node_output_name, major_node_output_channels
+                )
             else:
                 raise ValueError('The first node has to be of type "net".')
         else:
             node_creators = dict()
-            node_creators['convolutional'] = self._make_conv_node
-            node_creators['maxpool'] = self._make_maxpool_node
-            node_creators['shortcut'] = self._make_shortcut_node
-            node_creators['route'] = self._make_route_node
-            node_creators['upsample'] = self._make_upsample_node
-            node_creators['yolo'] = self._make_yolo_node
+            node_creators["convolutional"] = self._make_conv_node
+            node_creators["maxpool"] = self._make_maxpool_node
+            node_creators["shortcut"] = self._make_shortcut_node
+            node_creators["route"] = self._make_route_node
+            node_creators["upsample"] = self._make_upsample_node
+            node_creators["yolo"] = self._make_yolo_node
 
             if layer_type in node_creators.keys():
-                major_node_output_name, major_node_output_channels = \
-                    node_creators[layer_type](layer_name, layer_dict)
-                major_node_specs = MajorNodeSpecs(major_node_output_name,
-                                                  major_node_output_channels)
+                major_node_output_name, major_node_output_channels = node_creators[
+                    layer_type
+                ](layer_name, layer_dict)
+                major_node_specs = MajorNodeSpecs(
+                    major_node_output_name, major_node_output_channels
+                )
             else:
-                raise TypeError('layer of type %s not supported' % layer_type)
+                raise TypeError("layer of type %s not supported" % layer_type)
         return major_node_specs
 
     def _make_input_tensor(self, layer_name, layer_dict):
@@ -504,14 +525,16 @@ class GraphBuilderONNX(object):
         layer_name -- the layer's name (also the corresponding key in layer_configs)
         layer_dict -- a layer parameter dictionary (one element of layer_configs)
         """
-        #batch_size = layer_dict['batch']
-        channels = layer_dict['channels']
-        height = layer_dict['height']
-        width = layer_dict['width']
-        #self.batch_size = batch_size
+        # batch_size = layer_dict['batch']
+        channels = layer_dict["channels"]
+        height = layer_dict["height"]
+        width = layer_dict["width"]
+        # self.batch_size = batch_size
         input_tensor = helper.make_tensor_value_info(
-            str(layer_name), TensorProto.FLOAT, [
-                self.batch_size, channels, height, width])
+            str(layer_name),
+            TensorProto.FLOAT,
+            [self.batch_size, channels, height, width],
+        )
         self.input_tensor = input_tensor
         return layer_name, channels
 
@@ -527,7 +550,7 @@ class GraphBuilderONNX(object):
         if target_index == 0:
             if self.route_spec != 0:
                 previous_node = self.major_node_specs[self.route_spec]
-                assert 'dummy' not in previous_node.name
+                assert "dummy" not in previous_node.name
                 self.route_spec = 0
             else:
                 previous_node = self.major_node_specs[-1]
@@ -547,12 +570,14 @@ class GraphBuilderONNX(object):
         previous_node_specs = self._get_previous_node_specs()
         inputs = [previous_node_specs.name]
         previous_channels = previous_node_specs.channels
-        kernel_size = layer_dict['size']
-        stride = layer_dict['stride']
-        filters = layer_dict['filters']
+        kernel_size = layer_dict["size"]
+        stride = layer_dict["stride"]
+        filters = layer_dict["filters"]
         batch_normalize = False
-        if 'batch_normalize' in layer_dict.keys(
-        ) and layer_dict['batch_normalize'] == 1:
+        if (
+            "batch_normalize" in layer_dict.keys()
+            and layer_dict["batch_normalize"] == 1
+        ):
             batch_normalize = True
 
         kernel_shape = [kernel_size, kernel_size]
@@ -561,104 +586,98 @@ class GraphBuilderONNX(object):
 
         strides = [stride, stride]
         dilations = [1, 1]
-        weights_name = conv_params.generate_param_name('conv', 'weights')
+        weights_name = conv_params.generate_param_name("conv", "weights")
         inputs.append(weights_name)
         if not batch_normalize:
-            bias_name = conv_params.generate_param_name('conv', 'bias')
+            bias_name = conv_params.generate_param_name("conv", "bias")
             inputs.append(bias_name)
 
         conv_node = helper.make_node(
-            'Conv',
+            "Conv",
             inputs=inputs,
             outputs=[layer_name],
             kernel_shape=kernel_shape,
             strides=strides,
-            auto_pad='SAME_LOWER',
+            auto_pad="SAME_LOWER",
             dilations=dilations,
-            name=layer_name
+            name=layer_name,
         )
         self._nodes.append(conv_node)
         inputs = [layer_name]
         layer_name_output = layer_name
 
         if batch_normalize:
-            layer_name_bn = layer_name + '_bn'
-            bn_param_suffixes = ['scale', 'bias', 'mean', 'var']
+            layer_name_bn = layer_name + "_bn"
+            bn_param_suffixes = ["scale", "bias", "mean", "var"]
             for suffix in bn_param_suffixes:
-                bn_param_name = conv_params.generate_param_name('bn', suffix)
+                bn_param_name = conv_params.generate_param_name("bn", suffix)
                 inputs.append(bn_param_name)
             batchnorm_node = helper.make_node(
-                'BatchNormalization',
+                "BatchNormalization",
                 inputs=inputs,
                 outputs=[layer_name_bn],
                 epsilon=self.epsilon_bn,
                 momentum=self.momentum_bn,
-                name=layer_name_bn
+                name=layer_name_bn,
             )
             self._nodes.append(batchnorm_node)
             inputs = [layer_name_bn]
             layer_name_output = layer_name_bn
 
-        if layer_dict['activation'] == 'leaky':
-            layer_name_lrelu = layer_name + '_lrelu'
+        if layer_dict["activation"] == "leaky":
+            layer_name_lrelu = layer_name + "_lrelu"
 
             lrelu_node = helper.make_node(
-                'LeakyRelu',
+                "LeakyRelu",
                 inputs=inputs,
                 outputs=[layer_name_lrelu],
                 name=layer_name_lrelu,
-                alpha=self.alpha_lrelu
+                alpha=self.alpha_lrelu,
             )
             self._nodes.append(lrelu_node)
             inputs = [layer_name_lrelu]
             layer_name_output = layer_name_lrelu
-        elif layer_dict['activation'] == 'mish':
-            layer_name_softplus = layer_name + '_softplus'
-            layer_name_tanh = layer_name + '_tanh'
-            layer_name_mish = layer_name + '_mish'
+        elif layer_dict["activation"] == "mish":
+            layer_name_softplus = layer_name + "_softplus"
+            layer_name_tanh = layer_name + "_tanh"
+            layer_name_mish = layer_name + "_mish"
 
             softplus_node = helper.make_node(
-                'Softplus',
+                "Softplus",
                 inputs=inputs,
                 outputs=[layer_name_softplus],
-                name=layer_name_softplus
+                name=layer_name_softplus,
             )
             self._nodes.append(softplus_node)
             tanh_node = helper.make_node(
-                'Tanh',
+                "Tanh",
                 inputs=[layer_name_softplus],
                 outputs=[layer_name_tanh],
-                name=layer_name_tanh
+                name=layer_name_tanh,
             )
             self._nodes.append(tanh_node)
 
             inputs.append(layer_name_tanh)
             mish_node = helper.make_node(
-                'Mul',
-                inputs=inputs,
-                outputs=[layer_name_mish],
-                name=layer_name_mish
+                "Mul", inputs=inputs, outputs=[layer_name_mish], name=layer_name_mish
             )
             self._nodes.append(mish_node)
 
             inputs = [layer_name_mish]
             layer_name_output = layer_name_mish
-        elif layer_dict['activation'] == 'logistic':
-            layer_name_lgx = layer_name + '_lgx'
+        elif layer_dict["activation"] == "logistic":
+            layer_name_lgx = layer_name + "_lgx"
 
             lgx_node = helper.make_node(
-                'Sigmoid',
-                inputs=inputs,
-                outputs=[layer_name_lgx],
-                name=layer_name_lgx
+                "Sigmoid", inputs=inputs, outputs=[layer_name_lgx], name=layer_name_lgx
             )
             self._nodes.append(lgx_node)
             inputs = [layer_name_lgx]
             layer_name_output = layer_name_lgx
-        elif layer_dict['activation'] == 'linear':
+        elif layer_dict["activation"] == "linear":
             pass
         else:
-            raise TypeError('%s activation not supported' % layer_dict['activation'])
+            raise TypeError("%s activation not supported" % layer_dict["activation"])
 
         self.param_dict[layer_name] = conv_params
         return layer_name_output, filters
@@ -671,18 +690,17 @@ class GraphBuilderONNX(object):
         layer_name -- the layer's name (also the corresponding key in layer_configs)
         layer_dict -- a layer parameter dictionary (one element of layer_configs)
         """
-        shortcut_index = layer_dict['from']
-        activation = layer_dict['activation']
-        assert activation == 'linear'
+        shortcut_index = layer_dict["from"]
+        activation = layer_dict["activation"]
+        assert activation == "linear"
 
         first_node_specs = self._get_previous_node_specs()
-        second_node_specs = self._get_previous_node_specs(
-            target_index=shortcut_index)
+        second_node_specs = self._get_previous_node_specs(target_index=shortcut_index)
         assert first_node_specs.channels == second_node_specs.channels
         channels = first_node_specs.channels
         inputs = [first_node_specs.name, second_node_specs.name]
         shortcut_node = helper.make_node(
-            'Add',
+            "Add",
             inputs=inputs,
             outputs=[layer_name],
             name=layer_name,
@@ -699,27 +717,26 @@ class GraphBuilderONNX(object):
         layer_name -- the layer's name (also the corresponding key in layer_configs)
         layer_dict -- a layer parameter dictionary (one element of layer_configs)
         """
-        route_node_indexes = layer_dict['layers']
+        route_node_indexes = layer_dict["layers"]
         if len(route_node_indexes) == 1:
-            if 'groups' in layer_dict.keys():
+            if "groups" in layer_dict.keys():
                 # for CSPNet-kind of architecture
-                assert 'group_id' in layer_dict.keys()
-                groups = layer_dict['groups']
-                group_id = int(layer_dict['group_id'])
+                assert "group_id" in layer_dict.keys()
+                groups = layer_dict["groups"]
+                group_id = int(layer_dict["group_id"])
                 assert group_id < groups
                 index = route_node_indexes[0]
                 if index > 0:
                     # +1 for input node (same reason as below)
                     index += 1
-                route_node_specs = self._get_previous_node_specs(
-                    target_index=index)
+                route_node_specs = self._get_previous_node_specs(target_index=index)
                 assert route_node_specs.channels % groups == 0
                 channels = route_node_specs.channels // groups
 
-                outputs = [layer_name + '_dummy%d' % i for i in range(groups)]
+                outputs = [layer_name + "_dummy%d" % i for i in range(groups)]
                 outputs[group_id] = layer_name
                 route_node = helper.make_node(
-                    'Split',
+                    "Split",
                     axis=1,
                     split=[channels] * groups,
                     inputs=[route_node_specs.name],
@@ -735,11 +752,12 @@ class GraphBuilderONNX(object):
                     # +1 for input node (same reason as below)
                     self.route_spec = route_node_indexes[0] + 1
                 # This dummy route node would be removed in the end.
-                layer_name = layer_name + '_dummy'
+                layer_name = layer_name + "_dummy"
                 channels = 1
         else:
-            assert 'groups' not in layer_dict.keys(), \
-                'groups not implemented for multiple-input route layer!'
+            assert "groups" not in layer_dict.keys(), (
+                "groups not implemented for multiple-input route layer!"
+            )
             inputs = list()
             channels = 0
             for index in route_node_indexes:
@@ -747,15 +765,14 @@ class GraphBuilderONNX(object):
                     # Increment by one because we count the input as
                     # a node (DarkNet does not)
                     index += 1
-                route_node_specs = self._get_previous_node_specs(
-                    target_index=index)
+                route_node_specs = self._get_previous_node_specs(target_index=index)
                 inputs.append(route_node_specs.name)
                 channels += route_node_specs.channels
             assert inputs
             assert channels > 0
 
             route_node = helper.make_node(
-                'Concat',
+                "Concat",
                 axis=1,
                 inputs=inputs,
                 outputs=[layer_name],
@@ -772,9 +789,11 @@ class GraphBuilderONNX(object):
         layer_name -- the layer's name (also the corresponding key in layer_configs)
         layer_dict -- a layer parameter dictionary (one element of layer_configs)
         """
-        upsample_factor = float(layer_dict['stride'])
+        upsample_factor = float(layer_dict["stride"])
         # Create the scales array with node config
-        scales = np.array([1.0, 1.0, upsample_factor, upsample_factor]).astype(np.float32)
+        scales = np.array([1.0, 1.0, upsample_factor, upsample_factor]).astype(
+            np.float32
+        )
         previous_node_specs = self._get_previous_node_specs()
         inputs = [previous_node_specs.name]
 
@@ -787,8 +806,8 @@ class GraphBuilderONNX(object):
         inputs.append(scales_name)
 
         upsample_node = helper.make_node(
-            'Upsample',
-            mode='nearest',
+            "Upsample",
+            mode="nearest",
             inputs=inputs,
             outputs=[layer_name],
             name=layer_name,
@@ -805,8 +824,8 @@ class GraphBuilderONNX(object):
         layer_name -- the layer's name (also the corresponding key in layer_configs)
         layer_dict -- a layer parameter dictionary (one element of layer_configs)
         """
-        stride = layer_dict['stride']
-        kernel_size = layer_dict['size']
+        stride = layer_dict["stride"]
+        kernel_size = layer_dict["size"]
         previous_node_specs = self._get_previous_node_specs()
         inputs = [previous_node_specs.name]
         channels = previous_node_specs.channels
@@ -814,12 +833,12 @@ class GraphBuilderONNX(object):
         strides = [stride, stride]
         assert channels > 0
         maxpool_node = helper.make_node(
-            'MaxPool',
+            "MaxPool",
             inputs=inputs,
             outputs=[layer_name],
             kernel_shape=kernel_shape,
             strides=strides,
-            auto_pad='SAME_UPPER',
+            auto_pad="SAME_UPPER",
             name=layer_name,
         )
         self._nodes.append(maxpool_node)
@@ -830,7 +849,7 @@ class GraphBuilderONNX(object):
         These are dummy nodes which would be removed in the end.
         """
         channels = 1
-        return layer_name + '_dummy', channels
+        return layer_name + "_dummy", channels
 
 
 def generate_md5_checksum(local_path):
@@ -838,7 +857,7 @@ def generate_md5_checksum(local_path):
     Keyword argument:
     local_path -- path of the file whose checksum shall be generated
     """
-    with open(local_path, 'rb') as local_file:
+    with open(local_path, "rb") as local_file:
         data = local_file.read()
         return hashlib.md5(data).hexdigest()
 
@@ -846,32 +865,44 @@ def generate_md5_checksum(local_path):
 def main():
     """Run the DarkNet-to-ONNX conversion for YOLO (v3 or v4)."""
     if sys.version_info[0] < 3:
-        raise SystemExit('ERROR: This modified version of yolov3_to_onnx.py '
-                         'script is only compatible with python3...')
+        raise SystemExit(
+            "ERROR: This modified version of yolov3_to_onnx.py "
+            "script is only compatible with python3..."
+        )
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-c', '--category_num', type=int, default=80,
-        help='number of object categories [80]')
+        "-c",
+        "--category_num",
+        type=int,
+        default=80,
+        help="number of object categories [80]",
+    )
     parser.add_argument(
-        '-m', '--model', type=str, required=True,
-        help=('[yolov3|yolov3-tiny|yolov3-spp|yolov4|yolov4-tiny]-'
-              '[{dimension}], where dimension could be a single '
-              'number (e.g. 288, 416, 608) or WxH (e.g. 416x256)'))
+        "-m",
+        "--model",
+        type=str,
+        required=True,
+        help=(
+            "[yolov3|yolov3-tiny|yolov3-spp|yolov4|yolov4-tiny]-"
+            "[{dimension}], where dimension could be a single "
+            "number (e.g. 288, 416, 608) or WxH (e.g. 416x256)"
+        ),
+    )
     args = parser.parse_args()
     if args.category_num <= 0:
-        raise SystemExit('ERROR: bad category_num (%d)!' % args.category_num)
+        raise SystemExit("ERROR: bad category_num (%d)!" % args.category_num)
 
-    cfg_file_path = '%s.cfg' % args.model
+    cfg_file_path = "%s.cfg" % args.model
     if not os.path.isfile(cfg_file_path):
-        raise SystemExit('ERROR: file (%s) not found!' % cfg_file_path)
-    weights_file_path = '%s.weights' % args.model
+        raise SystemExit("ERROR: file (%s) not found!" % cfg_file_path)
+    weights_file_path = "%s.weights" % args.model
     if not os.path.isfile(weights_file_path):
-        raise SystemExit('ERROR: file (%s) not found!' % weights_file_path)
-    output_file_path = '%s.do_not_sync.onnx' % args.model
+        raise SystemExit("ERROR: file (%s) not found!" % weights_file_path)
+    output_file_path = "%s.do_not_sync.onnx" % args.model
 
     if not verify_classes(args.model, args.category_num):
-        raise SystemExit('ERROR: bad category_num (%d)' % args.category_num)
+        raise SystemExit("ERROR: bad category_num (%d)" % args.category_num)
 
     # Derive yolo input width/height from model name.
     # For example, "yolov4-416x256" -> width=416, height=256
@@ -880,12 +911,19 @@ def main():
     # These are the only layers DarkNetParser will extract config
     # from.  The three layers of type 'yolo' are not parsed in detail
     # because they are included in the post-processing later.
-    supported_layers = ['net', 'convolutional', 'maxpool',
-                        'shortcut', 'route', 'upsample', 'yolo']
+    supported_layers = [
+        "net",
+        "convolutional",
+        "maxpool",
+        "shortcut",
+        "route",
+        "upsample",
+        "yolo",
+    ]
 
     # Create a DarkNetParser object, and the use it to generate an
     # OrderedDict with all layer's configs from the cfg file.
-    print('Parsing DarkNet cfg file...')
+    print("Parsing DarkNet cfg file...")
     parser = DarkNetParser(supported_layers)
     layer_configs = parser.parse_cfg_file(cfg_file_path)
 
@@ -896,62 +934,61 @@ def main():
     # know the output shape of (in CHW format).
     output_tensor_dims = OrderedDict()
     c = (args.category_num + 5) * 3
-    if 'yolov3' in args.model:
-        if 'tiny' in args.model:
-            output_tensor_dims['016_convolutional'] = [c, h // 32, w // 32]
-            output_tensor_dims['023_convolutional'] = [c, h // 16, w // 16]
-        elif 'spp' in args.model:
-            output_tensor_dims['089_convolutional'] = [c, h // 32, w // 32]
-            output_tensor_dims['101_convolutional'] = [c, h // 16, w // 16]
-            output_tensor_dims['113_convolutional'] = [c, h //  8, w //  8]
+    if "yolov3" in args.model:
+        if "tiny" in args.model:
+            output_tensor_dims["016_convolutional"] = [c, h // 32, w // 32]
+            output_tensor_dims["023_convolutional"] = [c, h // 16, w // 16]
+        elif "spp" in args.model:
+            output_tensor_dims["089_convolutional"] = [c, h // 32, w // 32]
+            output_tensor_dims["101_convolutional"] = [c, h // 16, w // 16]
+            output_tensor_dims["113_convolutional"] = [c, h // 8, w // 8]
         else:
-            output_tensor_dims['082_convolutional'] = [c, h // 32, w // 32]
-            output_tensor_dims['094_convolutional'] = [c, h // 16, w // 16]
-            output_tensor_dims['106_convolutional'] = [c, h //  8, w //  8]
-    elif 'yolov4' in args.model:
-        if 'yolov4x-mish' in args.model:
-            output_tensor_dims['168_convolutional_lgx'] = [c, h //  8, w //  8]
-            output_tensor_dims['185_convolutional_lgx'] = [c, h // 16, w // 16]
-            output_tensor_dims['202_convolutional_lgx'] = [c, h // 32, w // 32]
-        elif 'yolov4-csp' in args.model:
-            output_tensor_dims['144_convolutional_lgx'] = [c, h //  8, w //  8]
-            output_tensor_dims['159_convolutional_lgx'] = [c, h // 16, w // 16]
-            output_tensor_dims['174_convolutional_lgx'] = [c, h // 32, w // 32]
-        elif 'tiny' in args.model:
-            output_tensor_dims['030_convolutional'] = [c, h // 32, w // 32]
-            output_tensor_dims['037_convolutional'] = [c, h // 16, w // 16]
+            output_tensor_dims["082_convolutional"] = [c, h // 32, w // 32]
+            output_tensor_dims["094_convolutional"] = [c, h // 16, w // 16]
+            output_tensor_dims["106_convolutional"] = [c, h // 8, w // 8]
+    elif "yolov4" in args.model:
+        if "yolov4x-mish" in args.model:
+            output_tensor_dims["168_convolutional_lgx"] = [c, h // 8, w // 8]
+            output_tensor_dims["185_convolutional_lgx"] = [c, h // 16, w // 16]
+            output_tensor_dims["202_convolutional_lgx"] = [c, h // 32, w // 32]
+        elif "yolov4-csp" in args.model:
+            output_tensor_dims["144_convolutional_lgx"] = [c, h // 8, w // 8]
+            output_tensor_dims["159_convolutional_lgx"] = [c, h // 16, w // 16]
+            output_tensor_dims["174_convolutional_lgx"] = [c, h // 32, w // 32]
+        elif "tiny" in args.model:
+            output_tensor_dims["030_convolutional"] = [c, h // 32, w // 32]
+            output_tensor_dims["037_convolutional"] = [c, h // 16, w // 16]
         else:
-            output_tensor_dims['139_convolutional'] = [c, h //  8, w //  8]
-            output_tensor_dims['150_convolutional'] = [c, h // 16, w // 16]
-            output_tensor_dims['161_convolutional'] = [c, h // 32, w // 32]
+            output_tensor_dims["139_convolutional"] = [c, h // 8, w // 8]
+            output_tensor_dims["150_convolutional"] = [c, h // 16, w // 16]
+            output_tensor_dims["161_convolutional"] = [c, h // 32, w // 32]
     else:
-        raise SystemExit('ERROR: unknown model (%s)!' % args.model)
+        raise SystemExit("ERROR: unknown model (%s)!" % args.model)
 
     # Create a GraphBuilderONNX object with the specified output tensor
     # dimensions.
-    print('Building ONNX graph...')
+    print("Building ONNX graph...")
     builder = GraphBuilderONNX(args.model, output_tensor_dims)
 
     # Now generate an ONNX graph with weights from the previously parsed
     # layer configurations and the weights file.
     yolo_model_def = builder.build_onnx_graph(
-        layer_configs=layer_configs,
-        weights_file_path=weights_file_path,
-        verbose=True)
+        layer_configs=layer_configs, weights_file_path=weights_file_path, verbose=True
+    )
 
     # Once we have the model definition, we do not need the builder anymore.
     del builder
 
     # Perform a sanity check on the ONNX model definition.
-    print('Checking ONNX model...')
+    print("Checking ONNX model...")
     onnx.checker.check_model(yolo_model_def)
 
     # Serialize the generated ONNX graph to this file.
-    print('Saving ONNX file...')
+    print("Saving ONNX file...")
     onnx.save(yolo_model_def, output_file_path)
 
-    print('Done.')
+    print("Done.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
