@@ -5,6 +5,7 @@ import iceoryx2 as iox2
 from src.core.engine import Engine
 from src.core.process import Process
 from src.types.ipc import LogMessage
+from src.types.null import NullContext
 
 
 class CountProcess(Process):  # noqa: D101
@@ -37,14 +38,15 @@ class CountProcess(Process):  # noqa: D101
         self.count += 1
 
 
-class CountEngine(Engine):
+class CountEngine(Engine[NullContext]):
     """Count and send log messages until the engine is stopped."""
 
     def __init__(self):
         super().__init__(
             modules=[
                 # No modules for this simple engine
-            ]
+            ],
+            context_type=NullContext
         )
         self.count_process = CountProcess()
 

@@ -25,7 +25,6 @@ class ArmorPanel:
     orientation: Optional[np.ndarray]
     bbx: Optional[BoundingBox]
 
-
 @dataclass
 class AutoAimContext(Context):
     """Context passed through the auto-aim module pipeline."""

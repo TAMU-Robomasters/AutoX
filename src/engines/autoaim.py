@@ -24,12 +24,6 @@ class AutoAimProcess(Process):  # noqa: D101
             .publish_subscribe(LogMessage)
             .open_or_create()
         )
-        self.image_service = (
-            self.node.service_builder(iox2.ServiceName.new("ImageService"))
-            .publish_subscribe(ImageMessage)
-            .open_or_create()
-        )
-        self.image_publisher = self.image_service.publisher_builder().create()
         self.publisher = self.service.publisher_builder().create()
         self.count = 0
         self.ctx = AutoAimContext()
@@ -60,7 +54,8 @@ class SimpleAutoAimEngine(Engine[AutoAimContext]):
             modules=[
                 ClassicalDetectorModule(),
                 SelectingWith3DModule(),
-            ]
+            ],
+            context_type=AutoAimContext
         )
         self.aim = AutoAimProcess()
 
