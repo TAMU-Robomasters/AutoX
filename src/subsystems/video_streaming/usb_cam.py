@@ -61,7 +61,7 @@ class USBCamVideoStream(VideoStream):
     `VideoStream` interface.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, index=0) -> None:
         """Load calibration and start the capture pipeline."""
         self.intrinsics: Intrinsics = Intrinsics(
             np.load(
@@ -73,11 +73,11 @@ class USBCamVideoStream(VideoStream):
                 allow_pickle=True,
             ),
         )
-
+        self.index = index
         # FIXME: probably don't hardcore this numbers @Jai
         # TEST: appsink drop=True max-buffers=1
         pipeline = (
-            "v4l2src device=/dev/video0 ! "
+            f"v4l2src device=/dev/video{self.index} ! "
             "image/jpeg, width=1280, height=720, framerate=90/1 ! "
             "nvv4l2decoder mjpeg=1 ! "
             "nvvidconv ! video/x-raw, format=BGRx ! "

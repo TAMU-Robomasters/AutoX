@@ -63,20 +63,39 @@ class VideoStream(ABC):
 
 def create_video_stream() -> VideoStream:
     """Create and return a VideoStream instance based on config.yaml."""
-    if config.hardware.camera == "realsense":
+    if config.hardware.camera.type == "realsense":
         from src.subsystems.video_streaming.realsense import RealSenseVideoStream
 
         return RealSenseVideoStream()
-    elif config.hardware.camera == "usb_cam":
+    elif config.hardware.camera.type == "usb_cam":
         from src.subsystems.video_streaming.usb_cam import USBCamVideoStream
 
-        return USBCamVideoStream()
-    elif config.hardware.camera == "webcam":
+        return USBCamVideoStream(config.hardware.camera.index)
+    elif config.hardware.camera.type == "webcam":
         from src.subsystems.video_streaming.webcam import WebCamVideoStream
 
-        return WebCamVideoStream(config.hardware.camera_index)
+        return WebCamVideoStream(config.hardware.camera.index)
     else:
-        raise ValueError(f"Unsupported camera type: {config.hardware.camera}")
+        raise ValueError(f"Unsupported camera type: {config.hardware.camera.type}")
+
+def create_circlet_stream() -> VideoStream:
+    """Create and return a VideoStream instance based on config.yaml."""
+    if config.hardware.circlet_camera1.type == "realsense":
+        from src.subsystems.video_streaming.realsense import RealSenseVideoStream
+
+        return RealSenseVideoStream()
+    elif config.hardware.circlet_camera1.type == "usb_cam":
+        from src.subsystems.video_streaming.usb_cam import USBCamVideoStream
+
+        return USBCamVideoStream(config.hardware.circlet_camera1.index)
+    elif config.hardware.circlet_camera1.type == "webcam":
+        from src.subsystems.video_streaming.webcam import WebCamVideoStream
+
+        return WebCamVideoStream(config.hardware.circlet_camera1.index)
+    else:
+        raise ValueError(f"Unsupported camera type: {config.hardware.circlet_camera1.type}")
 
 
 video_stream: VideoStream = create_video_stream()
+
+circlet_cam1: VideoStream = create_circlet_stream()

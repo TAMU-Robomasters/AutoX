@@ -59,12 +59,17 @@
             filter_team_color: true
             mode: development
             hardware:
-                camera: usb_cam # "realsense" or "zed" or "usb_cam" 
+                camera: 
+                    type: webcam # "realsense" or "zed" or "usb_cam" 
+                    index: 0
                 camera_has_depth: false
                 camera_has_pose: false
                 camera_has_acceleration: false
                 camera_has_gyro: false
                 flip_camera: false
+                circlet_camera1: 
+                    type: webcam
+                    index: 1
             model:
                 which_model: yolo_v8 
                 hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]
@@ -151,8 +156,9 @@
 
         CAMERA=WEBCAM:
             hardware:
-                camera: webcam
-                camera_index: 0
+                camera: 
+                    type: webcam
+                    index: 0
         
         
         V8:
@@ -162,7 +168,8 @@
 
         BOARD=XAVIER:
             hardware:
-                camera: realsense
+                camera: 
+                    type: realsense
             model:
                 hardware_acceleration: "tensor_rt"
             communication:
@@ -176,20 +183,10 @@
                 save_rate: 1 # every frame (1 frame per frame)
                 save_frame_to_file: true
         
-            
-        CAMERA=ZED:
-            hardware:
-                camera: zed
-                camera_has_depth: true
-                camera_has_pose: true
-            aiming:
-                # zed stream width/height pulled from camera on initialization
-                stream_framerate: 30
-                min_depth: 0.3
-                max_depth: 10.0
         CAMERA=REALSENSE:
             hardware:
-                camera: realsense
+                camera: 
+                    type: realsense
                 camera_has_depth: true
                 camera_has_pose: false
                 camera_has_acceleration: true
@@ -204,7 +201,8 @@
                 max_depth: 10.0
         CAMERA=NONE:
             hardware:
-                camera: null
+                camera: 
+                    type: null
         
         FLIP_CAMERA:
             hardware:

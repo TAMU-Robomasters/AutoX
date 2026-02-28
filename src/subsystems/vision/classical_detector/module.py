@@ -9,7 +9,7 @@ import numpy as np
 
 from src.core.module import Module, real
 from src.subsystems.display import CYAN, display
-from src.subsystems.video_streaming.video_stream import video_stream
+from src.subsystems.video_streaming.video_stream import video_stream, circlet_cam1
 from src.subsystems.vision.classical_detector import (
     armor,
     frame_proccesing,
@@ -61,7 +61,7 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
     @real(requires="camera")
     def _run_detect(self, ctx: AutoAimContext) -> AutoAimContext:
         """Process the current video frame and populate *ctx.panels*."""
-        frame = video_stream.get_frame()
+        frame = circlet_cam1.get_frame() 
         display.windows["main"].img = frame
         assert frame is not None, "No frame received from video stream."
 
