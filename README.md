@@ -1,8 +1,8 @@
 ### How to setup code
-- Download and install [git lfs](https://git-lfs.com/). This is used to manage large files
+- Download and install [git lfs](https://git-lfs.com/). This is used to manage large files for git.
 - git clone with the ssh link
 - run `git lfs install`
-- Install [uv](https://docs.astral.sh/uv/)
+- Install [uv](https://docs.astral.sh/uv/). This is used to manage python packages. Modern version of pip or conda. 
     - Mac/Linux/WSL
     `curl -LsSf https://astral.sh/uv/install.sh | sh`
     - Windows
