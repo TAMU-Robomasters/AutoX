@@ -1,6 +1,6 @@
 ### How to setup code
 - Download and install [git lfs](https://git-lfs.com/). This is used to manage large files
-- git clone
+- git clone with the ssh link
 - run `git lfs install`
 - Install [uv](https://docs.astral.sh/uv/)
     - Mac/Linux/WSL
