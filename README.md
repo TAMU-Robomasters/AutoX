@@ -10,7 +10,6 @@
 > [!WARNING]
 > You may have to restart your Windows machine after installing uv
 - run `uv sync`
-- run `git lfs install`
 - run `git pull`
 
 ### How do I get this code to run?
