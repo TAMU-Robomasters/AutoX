@@ -1,5 +1,5 @@
-### How to setup code
-## ssh keys
+# How to setup code
+### ssh keys
 TODO
 - Download and install [git lfs](https://git-lfs.com/). This is used to manage large files for git.
 - run `git clone git@github.com:TAMU-Robomasters/AutoX.git`
@@ -14,15 +14,15 @@ TODO
 - run `uv sync`
 - run `git pull`
 
-### How do I get this code to run?
+## How do I get this code to run?
 - Run `. .venv/bin/activate` and `python main.py @CAMERA=WEBCAM`
 - Or run `uv run main.py @CAMERA=WEBCAM`
 
-### What is this repo?
+# What is this repo?
 
 This handles all main logic that runs on the Jetson.
 
-### How does the code work?
+## How does the code work?
 TODO
 
 # At the competition
