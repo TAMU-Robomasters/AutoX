@@ -1,4 +1,6 @@
 ### How to setup code
+## ssh keys
+TODO
 - Download and install [git lfs](https://git-lfs.com/). This is used to manage large files for git.
 - run `git clone git@github.com:TAMU-Robomasters/AutoX.git`
 - run `git lfs install`
