@@ -3,7 +3,7 @@
 Capable of finding position, orientation, and icon of armor panels.
 """
 
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -18,6 +18,7 @@ from src.subsystems.vision.classical_detector import (
 )
 from src.toolbox.geometry_tools import BoundingBox
 from src.types.autoaim import ArmorPanel, AutoAimContext
+
 
 
 def _process_pairs(pairs, frame) -> List[ArmorPanel]:
@@ -51,15 +52,16 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
 class ClassicalDetectorModule(Module[AutoAimContext]):
     """Detects armor panels using classical computer-vision techniques."""
 
-    def __init__(self):
+    def __init__(self, context: AutoAimContext):
         super().__init__(
             name="classical_detector",
+            context=context,
             inputs=[],
             outputs=["panels"],
         )
 
     @real(requires="camera")
-    def _run_detect(self, ctx: AutoAimContext) -> AutoAimContext:
+    def _run_detect(self) -> Optional[List[ArmorPanel]]:
         """Process the current video frame and populate *ctx.panels*."""
         frame = video_stream.get_frame()
         display.windows["main"].img = frame
@@ -70,18 +72,17 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
 
         # Not enough lights to form a panel
         if len(lights) <= 1:
-            ctx.panels = None
-            return ctx
+            panels = None
+            return panels
 
         try:
             pairs = armor.pairing(lights)
         except Exception as e:
             print(f"Error in pairing: {e}")
-            ctx.panels = None
-            return ctx
+            panels = None
+            return panels
 
         panels = _process_pairs(pairs, frame)
         for panel in panels:
             display.windows["main"].add_bounding_box(bounding_box=panel.bbx, color=CYAN)
-        ctx.panels = panels if panels else None
-        return ctx
+        return panels

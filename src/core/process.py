@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod  # noqa: D100
-from multiprocessing import Process as _Process
+
 
 
 class Process(_Process, ABC):

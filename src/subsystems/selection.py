@@ -7,7 +7,11 @@ from src.subsystems.display import RED, display
 from src.subsystems.video_streaming.video_stream import video_stream
 from src.toolbox.geometry_tools import Position
 from src.toolbox.globals import config
-from src.types.autoaim import AutoAimContext
+from src.types.autoaim import ArmorPanel, AutoAimContext
+
+from typing import List, Optional
+from src.core.module import Context
+
 
 MIN_RANGE = config.aiming.max_range
 
@@ -15,18 +19,20 @@ MIN_RANGE = config.aiming.max_range
 class SelectingWith3DModule(Module[AutoAimContext]):
     """Selecting module that uses 3D information to select the closest target."""
 
-    def __init__(self):
+    def __init__(self, context: AutoAimContext):
         """Initialize the SelectingWith3DModule."""
         super().__init__(
             name="SelectingWith3DModule",
+            context=context,
             inputs=["panels"],
             outputs=["target_panel"],
         )
+    
 
     @real()
-    def _run_selection(self, ctx: AutoAimContext) -> AutoAimContext:
-        boxes = [panel.bbx for panel in ctx.panels] if ctx.panels else []
-        valid3dTargets = [panel.position for panel in ctx.panels] if ctx.panels else []
+    def _run_selection(self, panels: List[ArmorPanel]) -> Optional[ArmorPanel]:
+        boxes = [panel.bbx for panel in panels] if panels else []
+        valid3dTargets = [panel.position for panel in panels] if panels else []
         best_targ_3d = None
         best_score = 0
         best_idx = None
@@ -59,8 +65,8 @@ class SelectingWith3DModule(Module[AutoAimContext]):
 
             previous_panel_center = (
                 video_stream.center
-                if (ctx.prev_target_panel is None)
-                else ctx.prev_target_panel.bbx.center  # type: ignore[union-attr]
+                if (self.ctx.prev_target_panel is None)
+                else self.ctx.prev_target_panel.bbx.center  # type: ignore[union-attr]
             )  # in pixels
             # TODO: ? do we want to keep position class
             distance = dist(previous_panel_center, Position(box.center)) / 100  # type: ignore[union-attr]
@@ -100,8 +106,9 @@ class SelectingWith3DModule(Module[AutoAimContext]):
                 best_score = score
                 best_idx = idx
 
-        ctx.target_panel = None if best_targ_3d is None else ctx.panels[best_idx]  # type: ignore[index]
+        target_panel = None if best_targ_3d is None else panels[best_idx]  # type: ignore[index]
         display.windows["main"].add_bounding_box(
-            bounding_box=ctx.target_panel.bbx, color=RED
-        ) if ctx.target_panel else None
-        return ctx
+            bounding_box=target_panel.bbx, color=RED
+        ) if target_panel else None
+        
+        return target_panel

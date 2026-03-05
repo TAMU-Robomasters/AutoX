@@ -3,9 +3,11 @@
 import inspect
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, Generic, List, Optional, TypeVar
+from typing import Callable, Generic, List, Optional, TypeVar, Tuple
 
 from src.toolbox.globals import config
+
+# TODO: see if I can check if the types are in the same order as the inputs and outputs, by checking the type
 
 
 @dataclass
@@ -20,6 +22,7 @@ T = TypeVar("T", bound="Context")  # type must inherit from Context
 # Decorators for tagging run-method variants
 # ---------------------------------------------------------------------------
 
+#TODO decide if we want ctx to be optional
 
 def mock(fn: Callable) -> Callable:
     """Mark a method as the mock implementation for this module.
@@ -33,8 +36,22 @@ def mock(fn: Callable) -> Callable:
         def _run_mock(self, ctx):
             ...
     """
-    fn._variant_kind = "mock"  # type: ignore[attr-defined]
-    return fn
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, ctx=None):
+        if ctx is not None:
+            self.ctx = ctx
+        args = [getattr(self.ctx, input) for input in self._inputs]
+        outputs = fn(self, *args)
+        if not isinstance(outputs, tuple):
+            outputs = (outputs,)
+        for output, value in zip(self._outputs, outputs):
+            setattr(self.ctx, output, value)
+        return self.ctx
+
+    wrapper._variant_kind = "mock"  # type: ignore[attr-defined]
+    return wrapper
 
 
 def real(requires: Optional[str] = None) -> Callable:
@@ -57,12 +74,28 @@ def real(requires: Optional[str] = None) -> Callable:
             ...
     """
 
-    def decorator(fn: Callable) -> Callable:
-        fn._variant_kind = "real"  # type: ignore[attr-defined]
-        fn._variant_requires = requires  # type: ignore[attr-defined]
-        return fn
+    def inner(fn: Callable) -> Callable:
+        import functools
 
-    return decorator
+        @functools.wraps(fn)
+        def wrapper(self, ctx=None):
+            if ctx is not None:
+                self.ctx = ctx
+            args = [getattr(self.ctx, input) for input in self._inputs]
+            outputs = fn(self, *args)
+            # if outputs is not an iterable (like a tuple), we should make it one
+            # to match zip(self._outputs, outputs) unless len(outputs) == 1
+            if not isinstance(outputs, tuple):
+                outputs = (outputs,)
+            for output, value in zip(self._outputs, outputs):
+                setattr(self.ctx, output, value)
+            return self.ctx
+
+        wrapper._variant_kind = "real"  # type: ignore[attr-defined]
+        wrapper._variant_requires = requires  # type: ignore[attr-defined]
+        return wrapper
+
+    return inner
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +103,7 @@ def real(requires: Optional[str] = None) -> Callable:
 # ---------------------------------------------------------------------------
 
 
+# TODO: check the parameter names on the methods and the inputs to assert they match
 class Module(ABC, Generic[T]):
     """Modules are autonomous units used in pipelines.
 
@@ -82,9 +116,10 @@ class Module(ABC, Generic[T]):
     Engines call ``module.run(ctx)`` -- that is the only public entry point.
     """
 
-    def __init__(self, name: str, inputs: List[str], outputs: List[str]):
+    def __init__(self, name: str, context: T, inputs: List[str], outputs: List[str]):
         """Initialize the module."""
         self._name = name
+        self.ctx = context
         self._inputs = inputs
         self._outputs = outputs
         self._mock_fn: Optional[Callable] = None
@@ -103,10 +138,13 @@ class Module(ABC, Generic[T]):
         if reals:
             self._real_fns = [r[1] for r in reals]
 
+        self._run_method: Callable = self._select_run_method()
+
     # ------------------------------------------------------------------
     # run -- engines call this
     # ------------------------------------------------------------------
-    def run(self, ctx: T) -> T:
+
+    def _select_run_method(self) -> Callable:
         """Dispatch to the appropriate @real or @mock method.
 
         * ``config.mock.enable`` is ``True``  -> ``@mock``
@@ -123,7 +161,7 @@ class Module(ABC, Generic[T]):
                     f"(config.mock.enable is True) but no @mock method "
                     f"was registered."
                 )
-            return self._mock_fn(ctx)
+            return self._mock_fn
 
         # Pick a @real method. Future: match `requires` against hardware profile.
         if self._real_fns is None:
@@ -134,7 +172,25 @@ class Module(ABC, Generic[T]):
             0
         ]  # TODO: more sophisticated selection when multiple @real methods
 
-        return chosen(ctx)
+        return chosen
+
+    def remap_inputs(self, name: str, old_input: List[str], new_input: List[str]):
+        assert len(old_input) == len(new_input), (
+            "Input remapping requires lists of the same length."
+        )
+        for old, new in zip(old_input, new_input):
+            self._inputs = [new if i == old else i for i in self._inputs]
+
+    def remap_outputs(self, old_output: List[str], new_output: List[str]):
+        assert len(old_output) == len(new_output), (
+            "Output remapping requires lists of the same length."
+        )
+        for old, new in zip(old_output, new_output):
+            self._outputs = [new if o == old else o for o in self._outputs]
+
+    def run(self, ctx: T) -> T:
+        """Run the module on the given context."""
+        return self._run_method(ctx)
 
     # ------------------------------------------------------------------
     # Properties / accessors
