@@ -20,7 +20,7 @@ class RadiiEstimatorModule(Module[AutoAimContext]):
         )
 
     @real()
-    def _run_detect(self, panels: Optional[List[ArmorPanel]]) -> Optional[np.ndarray]:
+    def _run_estimate(self, panels: Optional[List[ArmorPanel]]) -> Optional[np.ndarray]:
         
         # LOGIC
 
