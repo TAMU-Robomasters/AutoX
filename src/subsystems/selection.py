@@ -4,7 +4,7 @@ from math import dist, exp
 
 from src.core.module import Module, real
 from src.subsystems.display import RED, display
-from src.subsystems.video_streaming.video_stream import video_stream
+from src.subsystems.video_streaming.video_stream import circlet_cam1 as video_stream
 from src.toolbox.geometry_tools import Position
 from src.toolbox.globals import config
 from src.types.autoaim import AutoAimContext

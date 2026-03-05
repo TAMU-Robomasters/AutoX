@@ -3,7 +3,8 @@
 import cv2 as cv
 import numpy as np
 
-from src.subsystems.video_streaming.video_stream import Intrinsics, video_stream
+from src.subsystems.video_streaming.video_stream import Intrinsics
+from src.subsystems.video_streaming.video_stream import circlet_cam1 as video_stream
 
 # camera intrinsics
 intrinsics: Intrinsics = video_stream.get_intrinsics()

@@ -9,7 +9,7 @@ import numpy as np
 
 from src.core.module import Module, real
 from src.subsystems.display import CYAN, display
-from src.subsystems.video_streaming.video_stream import video_stream, circlet_cam1
+from src.subsystems.video_streaming.video_stream import circlet_cam1
 from src.subsystems.vision.classical_detector import (
     armor,
     frame_proccesing,

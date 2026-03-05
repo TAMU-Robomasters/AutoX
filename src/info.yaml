@@ -69,7 +69,7 @@
                 flip_camera: false
                 circlet_camera1: 
                     type: webcam
-                    index: 1
+                    index: 0
             model:
                 which_model: yolo_v8 
                 hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]

@@ -14,17 +14,19 @@ class WebCamVideoStream(VideoStream):
         """Initialize the webcam video stream."""
         self.intrinsics: Intrinsics = Intrinsics(
             np.load(
-                f"{path_to.calibration_presets}/main_sentry_cam/dist.pkl",
+                f"{path_to.calibration_presets}/circlet_cam_1/dist.pkl",
                 allow_pickle=True,
             ),
             np.load(
-                f"{path_to.calibration_presets}/main_sentry_cam/camera_matrix.pkl",
+                f"{path_to.calibration_presets}/circlet_cam_1/camera_matrix.pkl",
                 allow_pickle=True,
             ),
         )
         self.cap = cv.VideoCapture(index)  # Use the default webcam
         if not self.cap.isOpened():
             raise Exception("Could not open webcam.")
+
+        self.cap.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
 
     def get_frame(self):
         """Return the most recent frame from the webcam."""

@@ -96,6 +96,6 @@ def create_circlet_stream() -> VideoStream:
         raise ValueError(f"Unsupported camera type: {config.hardware.circlet_camera1.type}")
 
 
-video_stream: VideoStream = create_video_stream()
+# video_stream: VideoStream = create_video_stream()
 
 circlet_cam1: VideoStream = create_circlet_stream()

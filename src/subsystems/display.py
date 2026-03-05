@@ -3,7 +3,7 @@
 import cv2 as cv
 import numpy as np
 
-from src.subsystems.video_streaming.video_stream import video_stream
+from src.subsystems.video_streaming.video_stream import circlet_cam1 as video_stream
 
 
 def _rgb(red, blue, green):
