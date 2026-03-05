@@ -86,3 +86,4 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
         for panel in panels:
             display.windows["main"].add_bounding_box(bounding_box=panel.bbx, color=CYAN)
         return panels
+

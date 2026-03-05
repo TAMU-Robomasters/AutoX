@@ -32,4 +32,7 @@ class AutoAimContext(Context):
     timestamp: Optional[float] = None
     panels: Optional[List[ArmorPanel]] = None
     target_panel: Optional[ArmorPanel] = None
-    prev_target_panel: Optional[ArmorPanel] = None
+    prev_target_panel: Optional[ArmorPanel] = None 
+    radii: Optional[np.ndarray] = None
+
+

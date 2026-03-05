@@ -57,3 +57,25 @@ class SimpleAutoAimEngine(Engine[AutoAimContext]):
         self.count += 1
 
         display.show_windows()
+
+
+
+# NOTE: Assume that detections/panels are all coming from the same robot
+class AdvancedAutoAimEngine(Engine[AutoAimContext]):
+    """Use more advanced techniques to find panels and select targets."""
+    def __init__(self):
+        self.ctx = AutoAimContext()
+        self.detection = ClassicalDetectorModule(self.ctx)
+        super().__init__(
+            modules=[
+                self.detection,
+            ],
+            context_type=AutoAimContext,
+        )
+
+    def initialize(self):  # noqa: D102
+        pass
+
+    def execute(self):  # noqa: D102
+        self.detection.run(self.ctx)
+        display.show_windows()
