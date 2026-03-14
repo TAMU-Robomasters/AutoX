@@ -39,9 +39,7 @@ def mock(fn: Callable) -> Callable:
     import functools
 
     @functools.wraps(fn)
-    def wrapper(self, ctx=None):
-        if ctx is not None:
-            self.ctx = ctx
+    def wrapper(self):
         args = [getattr(self.ctx, input) for input in self._inputs]
         outputs = fn(self, *args)
         if not isinstance(outputs, tuple):
@@ -78,9 +76,7 @@ def real(requires: Optional[str] = None) -> Callable:
         import functools
 
         @functools.wraps(fn)
-        def wrapper(self, ctx=None):
-            if ctx is not None:
-                self.ctx = ctx
+        def wrapper(self):
             args = [getattr(self.ctx, input) for input in self._inputs]
             outputs = fn(self, *args)
             # if outputs is not an iterable (like a tuple), we should make it one
@@ -188,9 +184,9 @@ class Module(ABC, Generic[T]):
         for old, new in zip(old_output, new_output):
             self._outputs = [new if o == old else o for o in self._outputs]
 
-    def run(self, ctx: T) -> T:
+    def run(self) -> T:
         """Run the module on the given context."""
-        return self._run_method(ctx)
+        return self._run_method()
 
     # ------------------------------------------------------------------
     # Properties / accessors

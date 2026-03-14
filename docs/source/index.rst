@@ -5,7 +5,11 @@ AutoX is a framework for ARC intended to make running and managing multiple proc
 It is designed to have the ability to run mock versions of code just by changing info.yaml.
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 5
    :caption: Contents:
 
    api
+   engine
+   module
+   context
+

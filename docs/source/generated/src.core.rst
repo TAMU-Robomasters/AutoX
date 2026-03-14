@@ -10,10 +10,10 @@
    :toctree:
    :recursive:
 
+   driver
    engine
    factory
    module
    orchestrator
-   pipeline
    process
    world_model

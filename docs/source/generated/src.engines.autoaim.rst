@@ -1,4 +1,4 @@
-src.engines.autoaim
+﻿src.engines.autoaim
 ===================
 
 .. automodule:: src.engines.autoaim
@@ -8,6 +8,6 @@ src.engines.autoaim
 
    .. autosummary::
    
-      AutoAimProcess
+      AdvancedAutoAimEngine
       SimpleAutoAimEngine
    

@@ -42,8 +42,8 @@ class SimpleAutoAimEngine(Engine[AutoAimContext]):
 
     def execute(self):  # noqa: D102
         # FIXME: this is creating an new instance every time. not good.
-        self.detection.run(self.ctx)
-        self.selection.run(self.ctx)
+        self.detection.run()
+        self.selection.run()
 
         # TODO: add config control for display
         self.sample = self.publisher.loan_uninit().write_payload(
