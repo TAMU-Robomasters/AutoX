@@ -7,7 +7,6 @@ requires-python = "==3.10.*"
 
 dependencies = [
     "filterpy>=1.4.5",
-    "iceoryx2>=0.8.1",
     "numpy==2.*",
     "opencv-python>=4.5,<5",
     "quik-config>=1.9.1",

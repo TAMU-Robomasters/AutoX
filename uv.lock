@@ -29,7 +29,6 @@ version = "0.1.0a0"
 source = { virtual = "." }
 dependencies = [
     { name = "filterpy" },
-    { name = "iceoryx2" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "quik-config" },
@@ -51,7 +50,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "filterpy", specifier = ">=1.4.5" },
-    { name = "iceoryx2", specifier = ">=0.8.1" },
     { name = "numpy", specifier = "==2.*" },
     { name = "opencv-python", specifier = ">=4.5,<5" },
     { name = "quik-config", specifier = ">=1.9.1" },
@@ -242,17 +240,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/03/3c8f09aad64230cd6d921ae7a19f9603c36f70930b00459f112706f6769a/fonttools-4.62.1-cp310-cp310-win32.whl", hash = "sha256:486f32c8047ccd05652aba17e4a8819a3a9d78570eb8a0e3b4503142947880ed", size = 1507878, upload-time = "2026-03-13T13:52:28.149Z" },
     { url = "https://files.pythonhosted.org/packages/dd/ec/f53f626f8f3e89f4cadd8fc08f3452c8fd182c951ad5caa35efac22b29ab/fonttools-4.62.1-cp310-cp310-win_amd64.whl", hash = "sha256:5a648bde915fba9da05ae98856987ca91ba832949a9e2888b48c47ef8b96c5a9", size = 1556766, upload-time = "2026-03-13T13:52:30.814Z" },
     { url = "https://files.pythonhosted.org/packages/fd/ba/56147c165442cc5ba7e82ecf301c9a68353cede498185869e6e02b4c264f/fonttools-4.62.1-py3-none-any.whl", hash = "sha256:7487782e2113861f4ddcc07c3436450659e3caa5e470b27dc2177cade2d8e7fd", size = 1152647, upload-time = "2026-03-13T13:54:22.735Z" },
-]
-
-[[package]]
-name = "iceoryx2"
-version = "0.8.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f6/58/c0d8dfd3be8b70a674564f979e53e966f33c74e50ea69175ec35ab951d17/iceoryx2-0.8.1.tar.gz", hash = "sha256:2d2ae65e013d285ee087fda97ec45bddb26b3e344d501365eb83b8cead229445", size = 818783, upload-time = "2026-01-16T17:19:49.23Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/0e/4060ecaabbbf9a0b802569ea4370a0cfda119eab394c700c9e5f4f7a2339/iceoryx2-0.8.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:cd2727a30579e51e02e908df1f0543f926ba29a57c016b4bb2091cc06cbdf086", size = 1204777, upload-time = "2026-01-16T17:19:44.126Z" },
-    { url = "https://files.pythonhosted.org/packages/5f/42/e396d7422513c2b036f734fb0970e899b39d835ccdee5afeb034e70ea073/iceoryx2-0.8.1-cp38-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:5ddf6ae96da21c01a86c93ad3dc21dce5f4b8801b31c053395d2441df392648f", size = 1433570, upload-time = "2026-01-16T17:19:45.856Z" },
-    { url = "https://files.pythonhosted.org/packages/36/b1/7428087e014da39fb033f27bbf01f0cc86341f6ec7f0fc67ffe5b50774b8/iceoryx2-0.8.1-cp38-abi3-win_amd64.whl", hash = "sha256:0d8dd708d1c076dff822e158c3b34e3ee561c81b3f91fa89eef90f6c67ba31c9", size = 1299170, upload-time = "2026-01-16T17:19:47.591Z" },
 ]
 
 [[package]]
