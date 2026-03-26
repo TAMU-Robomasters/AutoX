@@ -65,6 +65,8 @@
                 camera_has_acceleration: false
                 camera_has_gyro: false
                 flip_camera: false
+                usb_cam_exposure: null  # set to an int (e.g. 300) to enable manual exposure; null = leave auto on
+                                        # units are 100µs (e.g. 300 = 30ms shutter)
             model:
                 which_model: yolo_v8 
                 hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]
@@ -152,7 +154,7 @@
         CAMERA=WEBCAM:
             hardware:
                 camera: webcam
-                camera_index: 2
+                camera_index: 0
         
         
         V8:

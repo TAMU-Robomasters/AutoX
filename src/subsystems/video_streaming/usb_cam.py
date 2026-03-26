@@ -11,7 +11,7 @@ import numpy as np
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
 
 # project imports
-from src.toolbox.globals import path_to, print
+from src.toolbox.globals import path_to, print, config
 
 
 class BufferlesCvCapture:
@@ -76,19 +76,34 @@ class USBCamVideoStream(VideoStream):
 
         # FIXME: probably don't hardcore this numbers @Jai
         # TEST: appsink drop=True max-buffers=1
-        pipeline = (
-            "v4l2src device=/dev/video0 ! "
-            "image/jpeg, width=1280, height=720, framerate=90/1 ! "
-            "nvv4l2decoder mjpeg=1 ! "
-            "nvvidconv ! video/x-raw, format=BGRx ! "
-            "appsink"
-        )
+        pipeline = self._build_pipeline()
 
         try:
             self.cap = BufferlesCvCapture(pipeline)
         except Exception as e:
             print(f"Error in BufferlesCvCapture: {e}")
             raise e
+
+    def _build_pipeline(self) -> str:
+        """Build the GStreamer pipeline string, injecting manual exposure if configured.
+
+        V4L2 exposure_auto values: 1 = manual, 3 = aperture priority (auto).
+        exposure_absolute is in 100µs units (e.g. 100 = 10ms shutter).
+        Set hardware.usb_cam_exposure in config to enable; null = leave auto on.
+        """
+        exposure = getattr(config.hardware, "usb_cam_exposure", None)
+        extra_controls = (
+            f' extra-controls="c,exposure_auto=1,exposure_absolute={int(exposure)}"'
+            if exposure is not None
+            else ""
+        )
+        return (
+            f"v4l2src device=/dev/video0{extra_controls} ! "
+            "image/jpeg, width=1280, height=720, framerate=90/1 ! "
+            "nvv4l2decoder mjpeg=1 ! "
+            "nvvidconv ! video/x-raw, format=BGRx ! "
+            "appsink"
+        )
 
     def get_frame(self):
         """Return the most recent frame from the USB camera."""
