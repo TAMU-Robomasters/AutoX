@@ -31,7 +31,7 @@ class BufferlesCvCapture:
         self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
         self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
-        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.cam_exposure)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
         self.cap.set(cv.CAP_PROP_FPS, 90)
                #     "video/x-raw, format=BGR ! "
         #     "appsink drop=true max-buffers=1 sync=false"

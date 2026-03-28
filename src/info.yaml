@@ -156,7 +156,7 @@
                 camera: webcam
                 camera_index: 2
 
-        CAMERA=USB_CAM:
+        CAMERA=USB:
             hardware:
                 camera: usb_cam
                 camera_index: 0
