@@ -8,6 +8,7 @@ from src.subsystems.selection import SelectingWith3DModule
 from src.subsystems.vision import ClassicalDetectorModule
 from src.types.autoaim import AutoAimContext
 from src.types.ipc import ImageMessage, LogMessage
+from src.subsystems.estimation.module import RadiiEstimatorModule
 
 # TODO: make context_type just accept the concept
 class SimpleAutoAimEngine(Engine[AutoAimContext]):
@@ -66,9 +67,11 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
     def __init__(self):
         self.ctx = AutoAimContext()
         self.detection = ClassicalDetectorModule(self.ctx)
+        self.estimation = RadiiEstimatorModule(self.ctx)
         super().__init__(
             modules=[
                 self.detection,
+                self.estimation,
             ],
             context_type=AutoAimContext,
         )
@@ -78,4 +81,5 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
 
     def execute(self):  # noqa: D102
         self.detection.run(self.ctx)
+        self.estimation.run(self.ctx)
         display.show_windows()

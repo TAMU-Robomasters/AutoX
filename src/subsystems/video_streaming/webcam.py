@@ -4,7 +4,7 @@ import cv2 as cv
 import numpy as np
 
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
-from src.toolbox.globals import path_to
+from src.toolbox.globals import path_to, config
 
 
 class WebCamVideoStream(VideoStream):
@@ -22,9 +22,10 @@ class WebCamVideoStream(VideoStream):
                 allow_pickle=True,
             ),
         )
-        self.cap = cv.VideoCapture(index)  # Use the default webcam
+        self.cap = cv.VideoCapture(index)
         if not self.cap.isOpened():
             raise Exception("Could not open webcam.")
+        self._apply_exposure()
 
     def get_frame(self):
         """Return the most recent frame from the webcam."""
