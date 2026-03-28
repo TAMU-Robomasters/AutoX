@@ -22,10 +22,14 @@ class WebCamVideoStream(VideoStream):
                 allow_pickle=True,
             ),
         )
-        self.cap = cv.VideoCapture(index)
+        self.cap = cv.VideoCapture(config.hardware.camera_index, cv.CAP_V4L2)
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
+        self.cap.set(cv.CAP_PROP_FPS, 90)
         if not self.cap.isOpened():
             raise Exception("Could not open webcam.")
-        self._apply_exposure()
 
     def get_frame(self):
         """Return the most recent frame from the webcam."""

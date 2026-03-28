@@ -154,7 +154,8 @@
         CAMERA=WEBCAM:
             hardware:
                 camera: webcam
-                camera_index: 2
+                camera_index: 0
+                camera_exposure: 35
 
         CAMERA=USB:
             hardware:
