@@ -162,6 +162,7 @@
                 camera_index: 0
                 camera_exposure: 35
         
+        
         V8:
             model:
                 which_model: yolo_v8

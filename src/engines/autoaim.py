@@ -1,6 +1,6 @@
 """Auto-aim engine process."""
 
-import iceoryx2 as iox2
+# import iceoryx2 as iox2
 
 from src.core.engine import Engine
 from src.subsystems.display import display
@@ -10,9 +10,10 @@ from src.types.autoaim import AutoAimContext
 from src.types.ipc import ImageMessage, LogMessage
 from src.subsystems.estimation.module import RadiiEstimatorModule
 
+"""
 # TODO: make context_type just accept the concept
 class SimpleAutoAimEngine(Engine[AutoAimContext]):
-    """Use classical cv to find panels and 3D info to select the best target."""
+   # Use classical cv to find panels and 3D info to select the best target.
 
     def __init__(self):
         self.ctx = AutoAimContext()
@@ -59,7 +60,7 @@ class SimpleAutoAimEngine(Engine[AutoAimContext]):
 
         display.show_windows()
 
-
+"""
 
 # NOTE: Assume that detections/panels are all coming from the same robot
 class AdvancedAutoAimEngine(Engine[AutoAimContext]):

@@ -160,7 +160,15 @@
             hardware:
                 camera: usb_cam
                 camera_index: 0
+<<<<<<< Updated upstream
                 camera_exposure: 35
+        
+=======
+                  
+        CAMERA=USB:
+            hardware:
+                camera: usb_cam
+>>>>>>> Stashed changes
         
         V8:
             model:

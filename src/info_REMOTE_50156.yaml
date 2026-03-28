@@ -154,13 +154,11 @@
         CAMERA=WEBCAM:
             hardware:
                 camera: webcam
-                camera_index: 2
-
-        CAMERA=USB_CAM:
+                camera_index: 0
+                  
+        CAMERA=USB:
             hardware:
                 camera: usb_cam
-                camera_index: 0
-                camera_exposure: 35
         
         V8:
             model:
