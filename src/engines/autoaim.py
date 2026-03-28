@@ -83,4 +83,5 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
     def execute(self):  # noqa: D102
         self.detection.run(self.ctx)
         self.estimation.run(self.ctx)
+        print(self.ctx.radii)
         display.show_windows()

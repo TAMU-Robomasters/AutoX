@@ -161,7 +161,7 @@
             hardware:
                 camera: usb_cam
                 camera_index: 0
-                camera_exposure: 35
+                camera_exposure: 10
         
         V8:
             model:
