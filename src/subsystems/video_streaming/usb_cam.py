@@ -11,8 +11,7 @@ import numpy as np
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
 
 # project imports
-from src.toolbox.globals import path_to, print
-
+from src.toolbox.globals import path_to, print, config
 
 class BufferlesCvCapture:
     """Threaded OpenCV capture that keeps only the most recent frame.
@@ -28,7 +27,21 @@ class BufferlesCvCapture:
         Args:
             pipeline: GStreamer pipeline string for OpenCV capture.
         """
-        self.cap = cv.VideoCapture(pipeline, cv.CAP_GSTREAMER)
+        self.cap = cv.VideoCapture(config.hardware.camera_index, cv.CAP_V4L2)
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.cam_exposure)
+        self.cap.set(cv.CAP_PROP_FPS, 90)
+               #     "video/x-raw, format=BGR ! "
+        #     "appsink drop=true max-buffers=1 sync=false"
+        # )
+        # pipeline = ("v4l2src device=/dev/video0 ! "
+        #    "image/jpeg, width=1280, height=720, framerate=90/1 ! "
+        #    "nvv4l2decoder mjpeg=1 ! "
+        #    "nvvidconv ! video/x-raw, format=BGRx ! "
+        #    "appsink"
+        # )
         if not self.cap.isOpened():
             raise Exception("Could not open video.")
         self.q: queue.Queue[np.ndarray] = queue.Queue()
