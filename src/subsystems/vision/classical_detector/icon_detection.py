@@ -1,6 +1,13 @@
-"""TODO: Add module docstring."""
+"""Icon detection via XOR template matching.
 
-import os
+Icons are loaded in sorted filename order so that indices are deterministic:
+  0 -> complete_sentry_icon.jpeg  (sentry)
+  1 -> cropped_1.png              (hero)
+  2 -> cropped_3.png              (standard)
+  3 -> cropped_sentry.png         (sentry)
+"""
+
+from pathlib import Path
 
 import cv2 as cv
 import numpy as np
@@ -9,17 +16,19 @@ from src.toolbox.globals import config, path_to
 
 expected_points = np.array([[0, 0], [300, 0], [300, 300], [0, 300]], dtype=np.float32)
 
+icons_folder = Path(path_to.icons_folder)
 icon_list = []
-for pic in os.listdir(path_to.icons_folder):
-    full_path = os.path.join(path_to.icons_folder, pic)
-    picture = cv.imread(full_path)
+for pic in sorted(icons_folder.iterdir()):
+    if not pic.is_file():
+        continue
+    picture = cv.imread(str(pic))
     if picture is None:
-        raise Exception(f"Failed to read icon image: {full_path}")
+        raise Exception(f"Failed to read icon image: {pic}")
     gray = cv.cvtColor(picture, cv.COLOR_BGR2GRAY)
     icon_list.append(gray)
 
 # Vectorized comparison with all icons at once
-# Stack all icons into a 3D array (n_icons x hpeight x width)
+# Stack all icons into a 3D array (n_icons x height x width)
 icon_stack = np.stack(icon_list)
 
 

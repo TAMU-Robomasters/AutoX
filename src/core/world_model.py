@@ -1,10 +1,7 @@
 """A singleton used to store information about the world (i.e. enemy positions) for all processes to access."""
 
-from src.types.autoaim import AutoAimContext
-from src.types.world_model import (  # noqa: F401 – re-exported
-    CurrentWorldModel,
-    EnemyRobot,
-)
+from src.types.autoaim import AutoAimContext, EnemyRobot
+from src.types.world_model import CurrentWorldModel
 
 
 # TODO: make pipelines create their own update methods as multiprocessing safe modules

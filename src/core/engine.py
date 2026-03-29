@@ -61,10 +61,18 @@ class Engine(_Process, ABC, Generic[T]):
         self.initialize()
         while self.active:
             self.execute()
+            self.update()
 
     @abstractmethod
     def execute(self):
         """The main body of an engine. Called repeatedly."""
+
+    def update(self):
+        """Runs every loop after execute. Useful for updating the display.
+        
+        Override if needed, otherwise does nothing.
+        """
+        pass
 
     def stop(self):
         """Signal the engine to stop and wait for it to finish."""

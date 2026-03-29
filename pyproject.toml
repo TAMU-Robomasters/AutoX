@@ -25,6 +25,9 @@ dev = [
     "sphinx-autodoc-typehints>=3.0.1",
     "sphinx-book-theme>=1.1.4",
 ]
+gpu = [
+    "cupy==13.6.*",
+]
 
 [tool.ruff.lint]
 select = [

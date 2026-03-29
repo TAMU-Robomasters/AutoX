@@ -7,7 +7,7 @@ from typing import List, Optional
 
 import numpy as np
 
-from src.core.module import Module, real
+from src.core.module import Context, Module, real
 from src.subsystems.display import CYAN, display
 from src.subsystems.video_streaming.video_stream import video_stream
 from src.subsystems.vision.classical_detector import (
@@ -17,8 +17,7 @@ from src.subsystems.vision.classical_detector import (
     pnp,
 )
 from src.toolbox.geometry_tools import BoundingBox
-from src.types.autoaim import ArmorPanel, AutoAimContext
-
+from src.types.autoaim import ArmorPanel
 
 
 def _process_pairs(pairs, frame) -> List[ArmorPanel]:
@@ -49,10 +48,10 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
     return panels
 
 
-class ClassicalDetectorModule(Module[AutoAimContext]):
+class ClassicalDetectorModule(Module[Context]):
     """Detects armor panels using classical computer-vision techniques."""
 
-    def __init__(self, context: AutoAimContext):
+    def __init__(self, context: Context):
         super().__init__(
             name="classical_detector",
             context=context,
@@ -86,4 +85,3 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
         for panel in panels:
             display.windows["main"].add_bounding_box(bounding_box=panel.bbx, color=CYAN)
         return panels
-

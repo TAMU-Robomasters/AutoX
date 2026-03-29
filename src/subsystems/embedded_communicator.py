@@ -1,0 +1,200 @@
+"""UART communication to the embedded MCU for the particle-filter auto-aim pipeline.
+
+Ported from Armor-Panel-Classical/subsystems/communicate.py. Provides:
+  - Querying the embedded system for the camera-to-ballistic 4x4 transformation matrix
+  - Sending computed pitch, yaw, and alignment time back to the embedded system
+"""
+
+import subprocess
+import time
+from ctypes import Structure, c_float, c_uint8, sizeof
+from enum import Enum
+from typing import List, Optional, Tuple
+
+import numpy as np
+import numpy.typing as npt
+import serial
+
+from src.toolbox.globals import config
+
+
+# ---------------------------------------------------------------------------
+# Protocol enums & C-compatible structs
+# ---------------------------------------------------------------------------
+
+
+class CVState(Enum):
+    """State of the computer-vision pipeline as reported to embedded."""
+
+    PANEL_NOT_IN_VIEW: int = 0
+    PANEL_IN_VIEW: int = 1
+    FIRE: int = 2
+
+
+class JetsonMessage(Structure):
+    """Jetson -> Embedded: firing solution (12 bytes packed)."""
+
+    _pack_ = 1
+    _fields_ = [
+        ("magic", c_uint8),
+        ("messageType", c_uint8),
+        ("pitch", c_float),
+        ("yaw", c_float),
+        ("timeUntilNextFire", c_uint8),
+        ("cvState", c_uint8),
+    ]
+
+
+class QueryToEmbedded(Structure):
+    """Jetson -> Embedded: request transformation (3 bytes packed)."""
+
+    _pack_ = 1
+    _fields_ = [
+        ("magic", c_uint8),
+        ("messageType", c_uint8),
+        ("frameDelay_ms", c_uint8),
+    ]
+
+
+class EmbeddedTransformationMessage(Structure):
+    """Embedded -> Jetson: current turret transformation (69 bytes packed)."""
+
+    _pack_ = 1
+    _fields_ = [
+        ("magic", c_uint8),
+        ("yaw", c_float),
+        ("pitch", c_float),
+        ("matrix", c_float * 16),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Communicator
+# ---------------------------------------------------------------------------
+
+
+class EmbeddedCommunicator:
+    """Manages UART communication with the embedded MCU."""
+
+    def __init__(self) -> None:
+        serial_port = getattr(config.communication, "serial_port", None)
+        baudrate = int(config.communication.serial_baudrate)
+        self._serial_port_path = serial_port
+        self._baudrate = baudrate
+        self.port: Optional[serial.Serial] = self._setup_serial_port()
+        if self.port is not None:
+            self.port.reset_input_buffer()
+            self.port.reset_output_buffer()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def get_camera_to_ballistic_transformation(
+        self, milliseconds_in_the_past: int
+    ) -> Optional[Tuple[float, float, npt.NDArray[np.float64]]]:
+        """Query embedded for the 4x4 camera-to-ballistic transformation.
+
+        Returns:
+            ``(yaw, pitch, 4x4_matrix)`` or ``None`` on failure.
+        """
+        if self.port is None:
+            return None
+        if self._send_query_to_embedded(milliseconds_in_the_past):
+            msg = self._read_transformation_message()
+            if msg is not None:
+                matrix = np.array([*msg.matrix], dtype=np.float64).reshape((4, 4))
+                return msg.yaw, msg.pitch, matrix
+        return None
+
+    def send_angles_to_embedded(
+        self,
+        pitch: float,
+        yaw: float,
+        time_until_next_fire: int,
+        cv_state: int,
+        magic: str = "a",
+        message_type: str = "d",
+    ) -> bool:
+        """Send the ballistic solution to the embedded system."""
+        if self.port is None:
+            return False
+        message = JetsonMessage(
+            magic=ord(magic),
+            messageType=ord(message_type),
+            pitch=float(pitch),
+            yaw=float(yaw),
+            timeUntilNextFire=c_uint8(time_until_next_fire),
+            cvState=c_uint8(cv_state).value,
+        )
+        try:
+            self.port.write(bytes(message))
+            return True
+        except Exception as error:
+            print(f"[EmbeddedCommunicator] Write error: {error}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _setup_serial_port(self) -> Optional[serial.Serial]:
+        if not self._serial_port_path:
+            return None
+        try:
+            return serial.Serial(
+                self._serial_port_path,
+                baudrate=self._baudrate,
+                timeout=0.05,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+            )
+        except Exception:
+            try:
+                subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        f'sudo -S chmod 777 \'{self._serial_port_path}\' <<< "$(cat "$HOME/.pass")"',
+                    ],
+                    check=False,
+                )
+                return serial.Serial(
+                    self._serial_port_path,
+                    baudrate=self._baudrate,
+                    timeout=0.05,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                )
+            except Exception:
+                return None
+
+    def _send_query_to_embedded(
+        self, frame_delay_ms: int, magic: str = "a", message_type: str = "t"
+    ) -> bool:
+        query = QueryToEmbedded(
+            magic=ord(magic),
+            messageType=ord(message_type),
+            frameDelay_ms=c_uint8(frame_delay_ms).value,
+        )
+        try:
+            self.port.write(bytes(query))  # type: ignore[union-attr]
+            return True
+        except Exception as error:
+            print(f"[EmbeddedCommunicator] Query error: {error}")
+            return False
+
+    def _read_transformation_message(self) -> Optional[EmbeddedTransformationMessage]:
+        expected_size = sizeof(EmbeddedTransformationMessage())
+        start_time = time.time()
+        timeout = 5.0
+        while self.port.in_waiting < expected_size:  # type: ignore[union-attr]
+            if time.time() - start_time > timeout:
+                return None
+            time.sleep(0.01)
+        data = self.port.read(expected_size)  # type: ignore[union-attr]
+        if len(data) != expected_size:
+            return None
+        return EmbeddedTransformationMessage.from_buffer_copy(data)
