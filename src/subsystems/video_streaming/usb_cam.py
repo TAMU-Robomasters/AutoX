@@ -11,7 +11,7 @@ import numpy as np
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
 
 # project imports
-from src.toolbox.globals import path_to, print
+from src.toolbox.globals import path_to, print, config
 
 
 class BufferlesCvCapture:
@@ -22,13 +22,20 @@ class BufferlesCvCapture:
     always receive the most recent image.
     """
 
-    def __init__(self, pipeline: str) -> None:
+    def __init__(self, index: int) -> None:
         """Create and start the reader thread.
 
         Args:
-            pipeline: GStreamer pipeline string for OpenCV capture.
+            index: Index of the USB camera to open.
         """
-        self.cap = cv.VideoCapture(pipeline, cv.CAP_GSTREAMER)
+        self.cap = cv.VideoCapture(index, cv.CAP_GSTREAMER)
+        self.cap = cv.VideoCapture(0)
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
+        self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
+
         if not self.cap.isOpened():
             raise Exception("Could not open video.")
         self.q: queue.Queue[np.ndarray] = queue.Queue()
@@ -61,7 +68,7 @@ class USBCamVideoStream(VideoStream):
     `VideoStream` interface.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, index: int) -> None:
         """Load calibration and start the capture pipeline."""
         self.intrinsics: Intrinsics = Intrinsics(
             np.load(
@@ -74,18 +81,8 @@ class USBCamVideoStream(VideoStream):
             ),
         )
 
-        # FIXME: probably don't hardcore this numbers @Jai
-        # TEST: appsink drop=True max-buffers=1
-        pipeline = (
-            "v4l2src device=/dev/video0 ! "
-            "image/jpeg, width=1280, height=720, framerate=90/1 ! "
-            "nvv4l2decoder mjpeg=1 ! "
-            "nvvidconv ! video/x-raw, format=BGRx ! "
-            "appsink"
-        )
-
         try:
-            self.cap = BufferlesCvCapture(pipeline)
+            self.cap = BufferlesCvCapture(index)
         except Exception as e:
             print(f"Error in BufferlesCvCapture: {e}")
             raise e
@@ -102,9 +99,9 @@ class USBCamVideoStream(VideoStream):
     @property
     def height(self):
         """Get height from intrinsics."""
-        return 8
+        return config.hardware.camera_height
 
     @property
     def width(self):
         """Get width from intrinsics."""
-        return 8
+        return config.hardware.camera_width

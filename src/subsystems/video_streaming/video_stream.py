@@ -70,7 +70,7 @@ def create_video_stream() -> VideoStream:
     elif config.hardware.camera == "usb_cam":
         from src.subsystems.video_streaming.usb_cam import USBCamVideoStream
 
-        return USBCamVideoStream()
+        return USBCamVideoStream(config.hardware.camera_index)
     elif config.hardware.camera == "webcam":
         from src.subsystems.video_streaming.webcam import WebCamVideoStream
 
