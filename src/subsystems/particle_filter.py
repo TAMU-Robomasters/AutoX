@@ -107,6 +107,7 @@ class ParticleFilter:
         """
         if not self.noise_stats_enabled:
             return None
+        print(self.omega_std.get())
         if host:
             return {
                 "vx_std": float(self.vx_std.get()),
@@ -269,3 +270,27 @@ class ParticleFilter:
         pred[1] += pred[3] * dt
         pred[4] += pred[5] * dt
         return pred
+
+if __name__ == '__main__':
+    import time
+    prior = cp.array([30, 100, 0.1, 0.1, 40, 0, 21], dtype=cp.float32)
+    Q = cp.diag(cp.array([1, 1, 10, 10, 10, 1, .1], dtype=cp.float32))
+    R = cp.diag(cp.array([2, 2, 1], dtype=cp.float32))
+
+    pf = ParticleFilter(100, Q, R, prior, 3, compute_noise_stats=True)
+    measurement = cp.array([100, 100, 30], dtype=cp.float32)
+    elapsed = 0
+
+    for x in range(1000):
+        start_time = time.perf_counter()
+        estimate, confidence = pf.update(elapsed, measurement)
+        elapsed = time.perf_counter() - start_time
+        stats = pf.noise_stats(host=True)
+        print(
+            f"\nTime: {elapsed*1000:.2f} ms, Estimate: {estimate}, confidence: {confidence}, "
+            f"\nvx_std: {stats['vx_std']:.4f}, vy_std: {stats['vy_std']:.4f}, "
+            f"\nspeed_std: {stats['speed_std']:.4f}, omega_std: {cp.rad2deg(stats['omega_std']):.4f}"
+        )
+
+    pf.reinit(prior)
+    print("Reinitialized:", pf.estimate)
