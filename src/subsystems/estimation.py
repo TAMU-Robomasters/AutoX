@@ -37,13 +37,20 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             inputs=["target_robot"],
             outputs=["estimate"],
         )
-        self._pf: ParticleFilter = _default_particle_filter()
+        self._pf: Optional[ParticleFilter] = None
         self._start_loop_time: float = 0.0
         self._initialised: bool = False
+
+    def set_particle_filter(self, pf: ParticleFilter) -> None:
+        """Inject the particle filter instance created by the engine."""
+        self._pf = pf
+        self._initialised = False
 
     @property
     def pf(self) -> ParticleFilter:
         """Expose the underlying particle filter (used by engine for reinit)."""
+        if self._pf is None:
+            raise RuntimeError("Particle filter has not been initialized for estimation module")
         return self._pf
 
     def reset(self) -> None:
@@ -62,6 +69,9 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         if panel.position is None:
             return None
 
+        if self._pf is None:
+            raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")
+
         # Build prior if this is the first observation (or after reset)
         if not self._initialised:
             default_radius = 21.0
@@ -77,7 +87,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
                 ],
                 dtype=cp.float32,
             )
-            self._pf.reinit(prior)
+            self.pf.reinit(prior)
             self._initialised = True
             self._start_loop_time = time.perf_counter()
 
@@ -85,7 +95,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         measurement = cp.array(
             [panel.position[0], panel.position[1], panel.yaw], dtype=cp.float32
         )
-        estimate, confidence = self._pf.update(current_time, measurement)
+        estimate, confidence = self.pf.update(current_time, measurement)
 
         return RobotStateEstimate(
             value=estimate,

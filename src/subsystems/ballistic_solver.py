@@ -20,7 +20,6 @@ from src.types.autoaim import (
     RobotStateEstimate,
     EnemyRobot,
 )
-from src.toolbox.globals import config
 
 
 BALLISTIC = config.ballistic
@@ -66,19 +65,23 @@ def _theta_solver(
 class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
     """Compute a firing solution from the robot state estimate."""
 
-    def __init__(self, context: ParticleFilterAutoAimContext, pf: ParticleFilter):
+    def __init__(self, context: ParticleFilterAutoAimContext, pf: Optional[ParticleFilter] = None):
         super().__init__(
             name="ballistic_solver",
             context=context,
             inputs=["estimate", "target_robot"],
             outputs=["solution"],
         )
-        self._pf = pf
+        self._pf: Optional[ParticleFilter] = pf
 
         # Load ballistic parameters from config (set in info.yaml)
         self._g: float = BALLISTIC.gravity
         self._v: float = BALLISTIC.projectile_velocity
         self._z_offset: float = BALLISTIC.z_offset
+
+    def set_particle_filter(self, pf: ParticleFilter) -> None:
+        """Inject the particle filter instance created by the engine."""
+        self._pf = pf
 
     @real()
     def _run_solve(
@@ -102,6 +105,8 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
 
         # Compensate for processing delay
         time_offset = time.perf_counter() - estimate.timestamp
+        if self._pf is None:
+            raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")
         prediction = self._pf.prediction(t + time_offset)
 
         yaw = float(

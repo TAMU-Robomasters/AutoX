@@ -30,6 +30,7 @@ class ArmorPanel:
     position: Optional[np.ndarray]
     orientation: Optional[np.ndarray]
     bbx: Optional[BoundingBox]
+    contour: Optional[np.ndarray]
     yaw: float = 0.0
 
 

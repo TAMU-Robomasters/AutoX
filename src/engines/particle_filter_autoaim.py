@@ -19,7 +19,10 @@ from src.subsystems.ballistic_solver import BallisticSolverModule
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import EmbeddedCommunicator
-from src.subsystems.estimation import ParticleFilterEstimationModule
+from src.subsystems.estimation import (
+    ParticleFilterEstimationModule,
+    _default_particle_filter,
+)
 from src.subsystems.targeting import TargetingModule
 from src.subsystems.vision import ClassicalDetectorModule
 from src.types.autoaim import ParticleFilterAutoAimContext
@@ -42,7 +45,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
         self.estimation = ParticleFilterEstimationModule(self.ctx)
-        self.ballistic = BallisticSolverModule(self.ctx, pf=self.estimation.pf)
+        self.ballistic = BallisticSolverModule(self.ctx)
 
         super().__init__(
             modules=[
@@ -56,7 +59,11 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         )
 
     def initialize(self) -> None:
-        """Create the embedded communicator in the child process."""
+        """Create child-process resources (communicator + particle filter)."""
+        pf = _default_particle_filter()
+        self.estimation.set_particle_filter(pf)
+        self.ballistic.set_particle_filter(pf)
+
         self.communicator = EmbeddedCommunicator()
         # Fallback pitch/yaw sent when no target is available
         self._last_pitch: float = float(np.deg2rad(-10))
@@ -86,7 +93,6 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             self.estimation.reset() #! should not reset unless timeout
             self.ctx.target_robot = None
             return
-
         # ----------------------------------------------------------
         # 2. Classification: panels -> sentry, hero, standard
         # ----------------------------------------------------------
@@ -97,6 +103,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         # ----------------------------------------------------------
         if self.ctx.target_robot is None or not self.ctx.target_robot.panels:
             self.targeting.run()
+        
+        print(f"Target robot: {self.ctx.target_robot}")
 
         target = self.ctx.target_robot
         if target is None or not target.panels:
@@ -150,6 +158,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self._last_pitch = solution.pitch
         self._last_yaw = solution.yaw
 
+        print(f"Sending angles to embedded: pitch={solution.pitch:.3f}, yaw={solution.yaw:.3f}, alignment_time={solution.alignment_time_ms}ms")
         self.communicator.send_angles_to_embedded(
             pitch=solution.pitch,
             yaw=solution.yaw,

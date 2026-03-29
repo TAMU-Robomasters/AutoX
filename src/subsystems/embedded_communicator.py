@@ -77,8 +77,10 @@ class EmbeddedCommunicator:
     """Manages UART communication with the embedded MCU."""
 
     def __init__(self) -> None:
-        serial_port = getattr(config.communication, "serial_port", None)
-        baudrate = int(config.communication.serial_baudrate)
+        serial_port = config.communication.serial_port
+        print(f"[EmbeddedCommunicator] Initializing on port: {serial_port}")
+        baudrate = config.communication.serial_baudrate
+        print(f"[EmbeddedCommunicator] Using baudrate: {baudrate}")
         self._serial_port_path = serial_port
         self._baudrate = baudrate
         self.port: Optional[serial.Serial] = self._setup_serial_port()
@@ -99,6 +101,7 @@ class EmbeddedCommunicator:
             ``(yaw, pitch, 4x4_matrix)`` or ``None`` on failure.
         """
         if self.port is None:
+            print("warning: serial port not available for embedded communication")
             return None
         if self._send_query_to_embedded(milliseconds_in_the_past):
             msg = self._read_transformation_message()

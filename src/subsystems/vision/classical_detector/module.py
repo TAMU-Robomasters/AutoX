@@ -43,6 +43,7 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
                         top_left=panel.corners[0][0],
                         bottom_right=panel.corners[2][0],
                     ),
+                    contour=panel.corners,
                 )
             )
     return panels
@@ -83,5 +84,5 @@ class ClassicalDetectorModule(Module[Context]):
 
         panels = _process_pairs(pairs, frame)
         for panel in panels:
-            display.windows["main"].add_bounding_box(bounding_box=panel.bbx, color=CYAN)
+            display.windows["main"].add_contour(panel.contour, color=CYAN)
         return panels
