@@ -4,7 +4,7 @@ import cv2 as cv
 import numpy as np
 
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
-from src.toolbox.globals import path_to
+from src.toolbox.globals import path_to, config
 
 
 class WebCamVideoStream(VideoStream):
@@ -23,6 +23,13 @@ class WebCamVideoStream(VideoStream):
             ),
         )
         self.cap = cv.VideoCapture(index)  # Use the default webcam
+                
+        # TODO get rid of this and actually fix threading multiprocessing bug
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
+        self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
         if not self.cap.isOpened():
             raise Exception("Could not open webcam.")
 
