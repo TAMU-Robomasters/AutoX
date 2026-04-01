@@ -1,5 +1,4 @@
 """Shared types for the auto-aim pipeline."""
-from src.subsystems.vision.classical_detector.frame_proccesing import frame_process
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional

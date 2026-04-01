@@ -1,5 +1,4 @@
 """Video streaming singleton loaded based on config."""
-from subsystems.video_streaming.video_stream import video_stream
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

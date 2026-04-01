@@ -2,7 +2,7 @@
 
 Capable of finding position, orientation, and icon of armor panels.
 """
-from subsystems.video_streaming.video_stream import video_stream
+from src.subsystems.video_streaming.video_stream import video_stream
 
 from typing import List, Optional
 
