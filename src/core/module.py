@@ -48,7 +48,7 @@ def mock(fn: Callable) -> Callable:
             setattr(self.ctx, output, value)
         return self.ctx
 
-    wrapper._variant_kind = "mock"  # type: ignore[attr-defined]
+    wrapper._impl_type = "mock"  # type: ignore[attr-defined]
     return wrapper
 
 
@@ -87,8 +87,8 @@ def real(requires: Optional[str] = None) -> Callable:
                 setattr(self.ctx, output, value)
             return self.ctx
 
-        wrapper._variant_kind = "real"  # type: ignore[attr-defined]
-        wrapper._variant_requires = requires  # type: ignore[attr-defined]
+        wrapper._impl_type = "real"  # type: ignore[attr-defined]
+        wrapper._impl_requires = requires  # type: ignore[attr-defined]
         return wrapper
 
     return inner
@@ -123,13 +123,13 @@ class Module(ABC, Generic[T]):
 
         # Discover decorated variant methods on this instance's class.
         mock: List = inspect.getmembers(
-            self, lambda m: getattr(m, "_variant_kind", None) == "mock"
+            self, lambda m: getattr(m, "_impl_type", None) == "mock"
         )
         if mock:
             self._mock_fn = mock[0][1]
 
         reals = inspect.getmembers(
-            self, lambda m: getattr(m, "_variant_kind", None) == "real"
+            self, lambda m: getattr(m, "_impl_type", None) == "real"
         )
         if reals:
             self._real_fns = [r[1] for r in reals]

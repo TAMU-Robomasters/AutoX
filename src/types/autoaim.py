@@ -1,4 +1,5 @@
 """Shared types for the auto-aim pipeline."""
+from src.subsystems.vision.classical_detector.frame_proccesing import frame_process
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -105,9 +106,10 @@ class BallisticSolution:
 
 @dataclass
 class AutoAimContext(Context):
-    """Context passed through the simple auto-aim module pipeline."""
+    """Context passed through the simple auto-aim module."""
 
     timestamp: Optional[float] = None
+    frame: Optional[np.ndarray] = None
     panels: Optional[List[ArmorPanel]] = None
     target_panel: Optional[ArmorPanel] = None
     prev_target_panel: Optional[ArmorPanel] = None
@@ -117,6 +119,8 @@ class AutoAimContext(Context):
 @dataclass
 class ParticleFilterAutoAimContext(Context):
     """Context passed through the particle-filter auto-aim pipeline."""
+
+    frame: Optional[np.ndarray] = None
 
     # Detection stage
     panels: Optional[List[ArmorPanel]] = None

@@ -3,14 +3,13 @@
 Takes a target robot and produces a ``RobotStateEstimate`` by feeding the
 robot's panel observations into a GPU-accelerated particle filter.
 """
-
 import time
 from typing import Optional
 
 import cupy as cp
 import numpy as np
 
-from src.core.module import Module, real
+from src.core.module import Module, real, mock
 from src.subsystems.particle_filter import ParticleFilter
 from src.types.autoaim import (
     EnemyRobot,
@@ -57,7 +56,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         """Mark the filter as uninitialised so it will re-init on next observation."""
         self._initialised = False
 
-    @real()
+    @real("GPU")
     def _run_estimate(
         self, target_robot: Optional[EnemyRobot]
     ) -> Optional[RobotStateEstimate]:
@@ -102,3 +101,35 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             timestamp=time.perf_counter(),
             confidence=float(confidence),
         )
+
+    @mock
+    def _run_mock_estimate(
+        self, target_robot: Optional[EnemyRobot]
+    ) -> Optional[RobotStateEstimate]:
+        """Mock estimation that returns a fixed state estimate."""
+        if target_robot is None or not target_robot.panels:
+            return None
+
+        panel = target_robot.panels[0]
+        if panel.position is None:
+            return None
+
+        # Return a dummy estimate with the panel's position and yaw, zero velocity,
+        # and a fixed radius. Confidence is set to 1.0 for simplicity.
+        return RobotStateEstimate(
+            value=np.array(
+                [
+                    panel.position[0],
+                    panel.position[1],
+                    0,
+                    0,
+                    panel.yaw,
+                    0,
+                    21.0,
+                ],
+                dtype=np.float32,
+            ),
+            timestamp=time.perf_counter(),
+            confidence=1.0,
+        )
+

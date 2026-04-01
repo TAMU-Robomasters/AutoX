@@ -9,7 +9,6 @@ import numpy as np
 
 from src.core.module import Context, Module, real
 from src.subsystems.display import CYAN, display
-from src.subsystems.video_streaming.video_stream import video_stream
 from src.subsystems.vision.classical_detector import (
     armor,
     frame_proccesing,
@@ -60,12 +59,12 @@ class ClassicalDetectorModule(Module[Context]):
             outputs=["panels"],
         )
 
-    @real(requires="camera")
+    @real()
     def _run_detect(self) -> Optional[List[ArmorPanel]]:
         """Process the current video frame and populate *ctx.panels*."""
-        frame = video_stream.get_frame()
-        display.windows["main"].img = frame
-        assert frame is not None, "No frame received from video stream."
+        frame = self.ctx.frame
+        assert frame is not None, "No frame received."
+
 
         contours = frame_proccesing.frame_process(frame)
         lights = armor.bounding_boxes(contours, frame)

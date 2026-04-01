@@ -3,6 +3,7 @@
 Takes a ``RobotStateEstimate`` and computes the pitch, yaw, and alignment time
 needed to hit the target.
 """
+from src.core.driver import mock
 
 import math
 import time
@@ -65,14 +66,14 @@ def _theta_solver(
 class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
     """Compute a firing solution from the robot state estimate."""
 
-    def __init__(self, context: ParticleFilterAutoAimContext, pf: Optional[ParticleFilter] = None):
+    def __init__(self, context: ParticleFilterAutoAimContext):
         super().__init__(
             name="ballistic_solver",
             context=context,
             inputs=["estimate", "target_robot"],
             outputs=["solution"],
         )
-        self._pf: Optional[ParticleFilter] = pf
+        self._pf: Optional[ParticleFilter] = None
 
         # Load ballistic parameters from config (set in info.yaml)
         self._g: float = BALLISTIC.gravity
@@ -83,7 +84,8 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
         """Inject the particle filter instance created by the engine."""
         self._pf = pf
 
-    @real()
+    #TODO: decouple ballistic solver from particle filter prediction by passing predicted state as input instead of estimate + target_robot
+    @real("GPU")
     def _run_solve(
         self, estimate: Optional[RobotStateEstimate], target_robot: Optional[EnemyRobot]
     ) -> Optional[BallisticSolution]:
@@ -131,4 +133,15 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
             pitch=float(theta),
             yaw=float(yaw),
             alignment_time_ms=alignment_time_ms,
+        )
+
+    @mock
+    def _run_mock_solve(
+        self, estimate: Optional[RobotStateEstimate], target_robot: Optional[EnemyRobot]
+    ) -> Optional[BallisticSolution]:
+        """Mock ballistic solver that returns a fixed solution."""
+        return BallisticSolution(
+            pitch=np.deg2rad(10),
+            yaw=np.deg2rad(20),
+            alignment_time_ms=500,
         )

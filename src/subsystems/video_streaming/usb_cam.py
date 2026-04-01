@@ -29,11 +29,11 @@ class BufferlesCvCapture:
             index: Index of the USB camera to open.
         """
         self.cap = cv.VideoCapture(index)
-        #self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
-        #self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
-        #self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
-        #self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
-        #self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
+        self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
 
         if not self.cap.isOpened():
             raise Exception("Could not open video.")
@@ -97,10 +97,10 @@ class USBCamVideoStream(VideoStream):
     # TODO: actually implement these
     @property
     def height(self):
-        """Get height from intrinsics."""
-        return config.hardware.camera_height
+        """Get height."""
+        return int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
 
     @property
     def width(self):
-        """Get width from intrinsics."""
-        return config.hardware.camera_width
+        """Get width."""
+        return int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))

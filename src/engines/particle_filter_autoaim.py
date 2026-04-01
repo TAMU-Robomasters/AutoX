@@ -27,6 +27,7 @@ from src.subsystems.targeting import TargetingModule
 from src.subsystems.vision import ClassicalDetectorModule
 from src.types.autoaim import ParticleFilterAutoAimContext
 from src.toolbox.globals import config
+from src.subsystems.video_streaming.video_stream import create_video_stream
 
 METERS_TO_CM = 100
 
@@ -69,8 +70,13 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self._last_pitch: float = float(np.deg2rad(-10))
         self._last_yaw: float = 0.0
 
+        # create video stream instance
+        self.video_stream = create_video_stream()
+
     def execute(self) -> None:
         """Run one iteration of the particle-filter auto-aim pipeline."""
+        self.ctx.frame = self.video_stream.get_frame()
+        display.windows["main"].img = self.ctx.frame
         # ----------------------------------------------------------
         # 1. Detection: frame -> panels
         # ----------------------------------------------------------
