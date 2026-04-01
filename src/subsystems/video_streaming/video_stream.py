@@ -1,4 +1,5 @@
 """Video streaming singleton loaded based on config."""
+from subsystems.video_streaming.video_stream import video_stream
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -77,3 +78,5 @@ def create_video_stream() -> VideoStream:
         return WebCamVideoStream(config.hardware.camera_index)
     else:
         raise ValueError(f"Unsupported camera type: {config.hardware.camera}")
+
+video_stream: VideoStream = create_video_stream()

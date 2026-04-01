@@ -2,6 +2,7 @@
 
 Capable of finding position, orientation, and icon of armor panels.
 """
+from subsystems.video_streaming.video_stream import video_stream
 
 from typing import List, Optional
 
@@ -62,7 +63,8 @@ class ClassicalDetectorModule(Module[Context]):
     @real()
     def _run_detect(self) -> Optional[List[ArmorPanel]]:
         """Process the current video frame and populate *ctx.panels*."""
-        frame = self.ctx.frame
+        frame = video_stream.get_frame()
+        display.windows["main"].img = frame
         assert frame is not None, "No frame received."
 
 

@@ -23,6 +23,11 @@ class WebCamVideoStream(VideoStream):
             ),
         )
         self.cap = cv.VideoCapture(index)  # Use the default webcam
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
+        self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
+        self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
 
         if not self.cap.isOpened():
             raise Exception("Could not open webcam.")
