@@ -156,12 +156,12 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         # ----------------------------------------------------------
         # 7. Send solution to embedded
         # ----------------------------------------------------------
-        self._last_pitch = solution.pitch
+        self._last_pitch = np.degrees(0)
         self._last_yaw = solution.yaw
 
         print(f"Sending angles to embedded: pitch={solution.pitch:.3f}, yaw={solution.yaw:.3f}, alignment_time={solution.alignment_time_ms}ms")
         self.communicator.send_angles_to_embedded(
-            pitch=solution.pitch,
+            pitch=self._last_pitch,
             yaw=solution.yaw,
             time_until_next_fire=solution.alignment_time_ms,
             cv_state=1,
