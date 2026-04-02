@@ -162,7 +162,7 @@
                 camera_fps: 90
                 camera_width: 1280
                 camera_height: 720
-                camera_intrinsics_path: mrcal_sentry_cam # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
+                camera_intrinsics_path: "mrcal_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
         
 # TODO fix this after you fix threading bug      
         CAMERA=SENTRY_CAM:
@@ -173,7 +173,7 @@
                 camera_fps: 90
                 camera_width: 1280
                 camera_height: 720
-                camera_instrinsics_path: mrcal_sentry_cam
+                camera_instrinsics_path: "mrcal_sentry_cam"
         
         
         V8:
