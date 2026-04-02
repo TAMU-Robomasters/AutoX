@@ -39,9 +39,7 @@ def mock(fn: Callable) -> Callable:
     import functools
 
     @functools.wraps(fn)
-    def wrapper(self, ctx=None):
-        if ctx is not None:
-            self.ctx = ctx
+    def wrapper(self):
         args = [getattr(self.ctx, input) for input in self._inputs]
         outputs = fn(self, *args)
         if not isinstance(outputs, tuple):
@@ -50,7 +48,7 @@ def mock(fn: Callable) -> Callable:
             setattr(self.ctx, output, value)
         return self.ctx
 
-    wrapper._variant_kind = "mock"  # type: ignore[attr-defined]
+    wrapper._impl_type = "mock"  # type: ignore[attr-defined]
     return wrapper
 
 
@@ -78,9 +76,7 @@ def real(requires: Optional[str] = None) -> Callable:
         import functools
 
         @functools.wraps(fn)
-        def wrapper(self, ctx=None):
-            if ctx is not None:
-                self.ctx = ctx
+        def wrapper(self):
             args = [getattr(self.ctx, input) for input in self._inputs]
             outputs = fn(self, *args)
             # if outputs is not an iterable (like a tuple), we should make it one
@@ -91,8 +87,8 @@ def real(requires: Optional[str] = None) -> Callable:
                 setattr(self.ctx, output, value)
             return self.ctx
 
-        wrapper._variant_kind = "real"  # type: ignore[attr-defined]
-        wrapper._variant_requires = requires  # type: ignore[attr-defined]
+        wrapper._impl_type = "real"  # type: ignore[attr-defined]
+        wrapper._impl_requires = requires  # type: ignore[attr-defined]
         return wrapper
 
     return inner
@@ -127,13 +123,13 @@ class Module(ABC, Generic[T]):
 
         # Discover decorated variant methods on this instance's class.
         mock: List = inspect.getmembers(
-            self, lambda m: getattr(m, "_variant_kind", None) == "mock"
+            self, lambda m: getattr(m, "_impl_type", None) == "mock"
         )
         if mock:
             self._mock_fn = mock[0][1]
 
         reals = inspect.getmembers(
-            self, lambda m: getattr(m, "_variant_kind", None) == "real"
+            self, lambda m: getattr(m, "_impl_type", None) == "real"
         )
         if reals:
             self._real_fns = [r[1] for r in reals]
@@ -188,9 +184,9 @@ class Module(ABC, Generic[T]):
         for old, new in zip(old_output, new_output):
             self._outputs = [new if o == old else o for o in self._outputs]
 
-    def run(self, ctx: T) -> T:
+    def run(self) -> T:
         """Run the module on the given context."""
-        return self._run_method(ctx)
+        return self._run_method()
 
     # ------------------------------------------------------------------
     # Properties / accessors

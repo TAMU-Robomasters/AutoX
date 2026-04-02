@@ -2,14 +2,14 @@
 
 Capable of finding position, orientation, and icon of armor panels.
 """
+from src.subsystems.video_streaming.video_stream import video_stream
 
 from typing import List, Optional
 
 import numpy as np
 
-from src.core.module import Module, real
+from src.core.module import Context, Module, real
 from src.subsystems.display import CYAN, display
-from src.subsystems.video_streaming.video_stream import video_stream
 from src.subsystems.vision.classical_detector import (
     armor,
     frame_proccesing,
@@ -17,8 +17,7 @@ from src.subsystems.vision.classical_detector import (
     pnp,
 )
 from src.toolbox.geometry_tools import BoundingBox
-from src.types.autoaim import ArmorPanel, AutoAimContext
-
+from src.types.autoaim import ArmorPanel
 
 
 def _process_pairs(pairs, frame) -> List[ArmorPanel]:
@@ -44,15 +43,16 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
                         top_left=panel.corners[0][0],
                         bottom_right=panel.corners[2][0],
                     ),
+                    contour=panel.corners,
                 )
             )
     return panels
 
 
-class ClassicalDetectorModule(Module[AutoAimContext]):
+class ClassicalDetectorModule(Module[Context]):
     """Detects armor panels using classical computer-vision techniques."""
 
-    def __init__(self, context: AutoAimContext):
+    def __init__(self, context: Context):
         super().__init__(
             name="classical_detector",
             context=context,
@@ -60,12 +60,13 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
             outputs=["panels"],
         )
 
-    @real(requires="camera")
+    @real()
     def _run_detect(self) -> Optional[List[ArmorPanel]]:
         """Process the current video frame and populate *ctx.panels*."""
         frame = video_stream.get_frame()
         display.windows["main"].img = frame
-        assert frame is not None, "No frame received from video stream."
+        assert frame is not None, "No frame received."
+
 
         contours = frame_proccesing.frame_process(frame)
         lights = armor.bounding_boxes(contours, frame)
@@ -84,6 +85,5 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
 
         panels = _process_pairs(pairs, frame)
         for panel in panels:
-            display.windows["main"].add_bounding_box(bounding_box=panel.bbx, color=CYAN)
+            display.windows["main"].add_contour(panel.contour, color=CYAN)
         return panels
-

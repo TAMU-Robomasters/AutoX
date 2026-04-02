@@ -14,20 +14,21 @@ class WebCamVideoStream(VideoStream):
         """Initialize the webcam video stream."""
         self.intrinsics: Intrinsics = Intrinsics(
             np.load(
-                f"{path_to.calibration_presets}/main_sentry_cam/dist.pkl",
+                f"{path_to.calibration_presets}/{config.hardware.camera_instrinsics_path}/dist.pkl",
                 allow_pickle=True,
             ),
             np.load(
-                f"{path_to.calibration_presets}/main_sentry_cam/camera_matrix.pkl",
+                f"{path_to.calibration_presets}/{config.hardware.camera_instrinsics_path}/camera_matrix.pkl",
                 allow_pickle=True,
             ),
         )
-        self.cap = cv.VideoCapture(config.hardware.camera_index, cv.CAP_V4L2)
+        self.cap = cv.VideoCapture(index)  # Use the default webcam
         self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
-        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
-        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
+        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
+        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
         self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
-        self.cap.set(cv.CAP_PROP_FPS, 90)
+        self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
+
         if not self.cap.isOpened():
             raise Exception("Could not open webcam.")
 

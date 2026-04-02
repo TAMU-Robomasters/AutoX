@@ -39,7 +39,7 @@ class VideoStream(ABC):
         return (self.width // 2, self.height // 2)
 
     @abstractmethod
-    def get_frame(self):
+    def get_frame(self) -> np.ndarray:
         """Return the most recent frame from the video stream."""
 
     def get_depth_at(self, u: int, v: int) -> Optional[float]:
@@ -70,13 +70,12 @@ def create_video_stream() -> VideoStream:
     elif config.hardware.camera == "usb_cam":
         from src.subsystems.video_streaming.usb_cam import USBCamVideoStream
 
-        return USBCamVideoStream()
+        return USBCamVideoStream(config.hardware.camera_index)
     elif config.hardware.camera == "webcam":
         from src.subsystems.video_streaming.webcam import WebCamVideoStream
 
         return WebCamVideoStream(config.hardware.camera_index)
     else:
         raise ValueError(f"Unsupported camera type: {config.hardware.camera}")
-
 
 video_stream: VideoStream = create_video_stream()
