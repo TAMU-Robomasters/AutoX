@@ -33,3 +33,7 @@ class AutoAimContext(Context):
     panels: Optional[List[ArmorPanel]] = None
     target_panel: Optional[ArmorPanel] = None
     prev_target_panel: Optional[ArmorPanel] = None
+    
+    # Additional fields for panel duration and interval estimation
+    panel_duration: Optional[float] = None
+    rotation_interval: Optional[float] = None
