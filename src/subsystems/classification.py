@@ -3,6 +3,7 @@
 Takes detected armor panels and groups them into three enemy robot types
 (sentry, hero, standard) based on their icon IDs.
 """
+import numpy as np
 
 from typing import List, Optional, Tuple
 
@@ -50,5 +51,9 @@ class RobotClassificationModule(Module[ParticleFilterAutoAimContext]):
                 hero.panels.append(panel)
             elif robot_name == "standard":
                 standard.panels.append(panel)
+
+        for robot in (sentry, hero, standard):
+            if robot.panels:
+                robot.panels.sort(key=lambda p: np.linalg.norm(p.position))  # Sort panels by distance
 
         return sentry, hero, standard

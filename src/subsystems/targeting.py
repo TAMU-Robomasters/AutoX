@@ -51,6 +51,7 @@ class TargetingModule(Module[ParticleFilterAutoAimContext]):
                 candidates.append(robot)
 
         if not candidates:
+            print("[INFO] No valid targets found.")
             return None
 
         return min(candidates, key=_closest_panel_distance)

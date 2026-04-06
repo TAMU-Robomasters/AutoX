@@ -108,6 +108,14 @@ class AutoAimContext(Context):
     """Context passed through the simple auto-aim module."""
 
     timestamp: Optional[float] = None
+        # Classification stage
+    sentry: Optional[EnemyRobot] = None
+    hero: Optional[EnemyRobot] = None
+    standard: Optional[EnemyRobot] = None
+
+    # Targeting stage
+    target_robot: Optional[EnemyRobot] = None
+
     frame: Optional[np.ndarray] = None
     panels: Optional[List[ArmorPanel]] = None
     target_panel: Optional[ArmorPanel] = None
@@ -118,6 +126,8 @@ class AutoAimContext(Context):
 @dataclass
 class ParticleFilterAutoAimContext(Context):
     """Context passed through the particle-filter auto-aim pipeline."""
+
+    start_loop_time: Optional[float] = None
 
     frame: Optional[np.ndarray] = None
 
@@ -137,3 +147,5 @@ class ParticleFilterAutoAimContext(Context):
 
     # Ballistic stage
     solution: Optional[BallisticSolution] = None
+
+    new_observation: bool = False

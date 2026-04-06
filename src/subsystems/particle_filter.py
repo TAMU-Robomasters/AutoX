@@ -136,6 +136,7 @@ class ParticleFilter:
         self.noise = cp.random.standard_normal(self.noise.shape, dtype=cp.float32)
         self.noise *= self.Q_sqrt_diag
         self.xk += self.noise
+        self.xk[:, 5] = self.xk[:, 5] % 39
 
     def _measurement_model(self, measurement: cp.ndarray) -> None:
         """Compute predicted measurements for each particle.
@@ -146,7 +147,7 @@ class ParticleFilter:
         x_c = self.xk[:, 0][:, None]  # shape (N,1)
         y_c = self.xk[:, 1][:, None]
         theta = self.xk[:, 4][:, None]
-        r = -self.xk[:, 6][:, None]
+        r = -23.5
 
         meas = cp.array(measurement, dtype=cp.float32)
 
@@ -254,6 +255,12 @@ class ParticleFilter:
         confidence = self._resample()
         return self.estimate, confidence
 
+    def update_with_no_observation(self, dt: float):
+        """Predict-only update when no new observation is available."""
+        self._motion_model(dt)
+        confidence = self._resample()
+        return self.estimate, confidence
+        
     def reinit(self, prior: cp.ndarray) -> None:
         """Re-initialise all particles around a new prior."""
         self.noise = cp.random.standard_normal(self.noise.shape, dtype=cp.float32)
@@ -274,10 +281,10 @@ class ParticleFilter:
 if __name__ == '__main__':
     import time
     prior = cp.array([30, 100, 0.1, 0.1, 40, 0, 21], dtype=cp.float32)
-    Q = cp.diag(cp.array([1, 1, 10, 10, 10, 1, .1], dtype=cp.float32))
+    Q = cp.diag(cp.array([1, 1, 100, 100, 10, 1, .1], dtype=cp.float32))
     R = cp.diag(cp.array([2, 2, 1], dtype=cp.float32))
 
-    pf = ParticleFilter(100, Q, R, prior, 3, compute_noise_stats=True)
+    pf = ParticleFilter(30_000, Q, R, prior, 3, compute_noise_stats=True)
     measurement = cp.array([100, 100, 30], dtype=cp.float32)
     elapsed = 0
 

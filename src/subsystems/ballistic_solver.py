@@ -46,6 +46,7 @@ def _theta_solver(
 
     disc = d2 - 4.0 * A * (delta_z + A)
     if disc < 0.0:
+        print(f"Discriminant is negative, no real solutions for theta (disc={disc:.2f}).")
         return None
 
     sqrt_disc = math.sqrt(disc)
@@ -91,15 +92,19 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
     ) -> Optional[BallisticSolution]:
         """Compute pitch, yaw, and alignment time from the estimate."""
         if estimate is None or target_robot is None:
+            print("Ballistic solver missing estimate or target_robot.")
             return None
         est = estimate.value
         # Horizontal distance to robot centre minus orbit radius
-        d = math.sqrt(float(est[0]) ** 2 + float(est[1]) ** 2) - float(est[6])
+        d = math.sqrt(float(est[0]) ** 2 + float(est[1]) ** 2) - float(23.5)
+        # print(f"Computed horizontal distance to target: {d:.2f}cm (after orbit compensation).")
         if d <= 0:
+            print(f"Target is too close for ballistic solution (d={d:.2f}cm).")
             return None
 
         solutions = _theta_solver(d, target_robot.panels[0].position[2] + self._z_offset, self._g, self._v)
         if solutions is None:
+            print(f"WARNING: Theta solver failed to find a solution for d={d:.2f}cm, delta_z={target_robot.panels[0].position[2] + self._z_offset:.2f}cm")
             return None
 
         # Pick the flatter trajectory (shorter time of flight)

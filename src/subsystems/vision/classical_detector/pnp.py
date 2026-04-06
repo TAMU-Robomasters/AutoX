@@ -12,10 +12,10 @@ cam_matrix = intrinsics.camera_matrix
 
 panel_coordinates = np.array(
     [
-        [-12.3 / 2, 12.4 / 2, 0],
-        [12.3 / 2, 12.4 / 2, 0],
-        [12.3 / 2, -12.4 / 2, 0],
-        [-12.3 / 2, -12.4 / 2, 0],
+        [-12.2 / 2, 12.5 / 2, 0],
+        [12.2 / 2, 12.5 / 2, 0],
+        [12.2 / 2, -12.5 / 2, 0],
+        [-12.2 / 2, -12.5 / 2, 0],
     ],
     dtype=np.float32,
 )
@@ -55,5 +55,5 @@ def get_cord(panel):
             )
 
         if success:
-            panel.tvec = tvec
+            panel.tvec = np.array([tvec[0], tvec[2], -tvec[1]])
             panel.rvec = rvec

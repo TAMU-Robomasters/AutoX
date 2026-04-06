@@ -14,16 +14,16 @@ from src.subsystems.particle_filter import ParticleFilter
 from src.types.autoaim import (
     EnemyRobot,
     ParticleFilterAutoAimContext,
-    RobotStateEstimate,
+    RobotStateEstimate, ArmorPanel,
 )
 
 
 def _default_particle_filter() -> ParticleFilter:
     """Create a particle filter with default hyperparameters."""
-    Q = cp.diag(cp.array([10, 10, 20, 20, 0.1, 1, 0.5], dtype=cp.float32))
+    Q = cp.diag(cp.array([10, 10, 20, 20, 0.1, 1], dtype=cp.float32))
     R = cp.diag(cp.array([50, 50,15], dtype=cp.float32))
-    prior = cp.array([0, 0, 0, 0, 0, 0, 0], dtype=cp.float32)
-    return ParticleFilter(num_particles=30_000, Q=Q, R=R, prior=prior, num_meas=3)
+    prior = cp.array([0, 0, 0, 0, 0, 0], dtype=cp.float32)
+    return ParticleFilter(num_particles=10_000, Q=Q, R=R, prior=prior, num_meas=3)
 
 
 class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
@@ -37,13 +37,16 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             outputs=["estimate"],
         )
         self._pf: Optional[ParticleFilter] = None
-        self._start_loop_time: float = 0.0
         self._initialised: bool = False
+        self.is_their_target_prev = False
+        self.is_their_target = False
 
     def set_particle_filter(self, pf: ParticleFilter) -> None:
         """Inject the particle filter instance created by the engine."""
         self._pf = pf
         self._initialised = False
+
+
 
     @property
     def pf(self) -> ParticleFilter:
@@ -61,18 +64,17 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         self, target_robot: Optional[EnemyRobot]
     ) -> Optional[RobotStateEstimate]:
         """Run one filter iteration on the target robot's panels."""
-        if target_robot is None or not target_robot.panels:
+        if target_robot is None:
+            self.is_their_target_prev = False
             return None
-
-        panel = target_robot.panels[0]
-        if panel.position is None:
-            return None
-
+        
+        self.is_their_target = True
         if self._pf is None:
             raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")
 
+        panel: ArmorPanel = target_robot.panels[0]
         # Build prior if this is the first observation (or after reset)
-        if not self._initialised:
+        if self.is_their_target and not self.is_their_target_prev: # new target
             default_radius = 21.0
             prior = cp.array(
                 [
@@ -81,20 +83,21 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
                     0,
                     0,
                     panel.yaw,
-                    0,
-                    default_radius,
+                    0
                 ],
                 dtype=cp.float32,
             )
             self.pf.reinit(prior)
-            self._initialised = True
-            self._start_loop_time = time.perf_counter()
 
-        current_time = time.perf_counter() - self._start_loop_time
-        measurement = cp.array(
-            [panel.position[0], panel.position[1], panel.yaw], dtype=cp.float32
-        )
-        estimate, confidence = self.pf.update(current_time, measurement)
+        self.is_their_target_prev = self.is_their_target
+        current_time = time.perf_counter() - self.ctx.start_loop_time if not self.ctx.start_loop_time is None else 0.0
+        if self.ctx.new_observation:
+            measurement = cp.array(
+                [panel.position[0], panel.position[1], panel.yaw], dtype=cp.float32
+            )
+            estimate, confidence = self.pf.update(current_time, measurement)
+        else:
+            estimate, confidence = self.pf.update_with_no_observation(current_time)
 
         return RobotStateEstimate(
             value=estimate,

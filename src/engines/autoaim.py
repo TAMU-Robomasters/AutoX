@@ -4,11 +4,13 @@
 
 from src.core.engine import Engine
 from src.subsystems.display import display
-from src.subsystems.selection import SelectingWith3DModule
+from src.subsystems.targeting import TargetingModule
+from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.vision import ClassicalDetectorModule
 from src.types.autoaim import AutoAimContext
 from src.types.ipc import ImageMessage, LogMessage
 from src.subsystems.estimation.module import RadiiEstimatorModule
+
 
 """
 # TODO: make context_type just accept the concept
@@ -68,10 +70,14 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
     def __init__(self):
         self.ctx = AutoAimContext()
         self.detection = ClassicalDetectorModule(self.ctx)
+        self.classification = RobotClassificationModule(self.ctx)
+        self.targeting = TargetingModule(self.ctx)
         self.estimation = RadiiEstimatorModule(self.ctx)
         super().__init__(
             modules=[
                 self.detection,
+                self.classification,
+                self.targeting,
                 self.estimation,
             ],
             context_type=AutoAimContext,
@@ -80,8 +86,18 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
     def initialize(self):  # noqa: D102
         pass
 
+
+    def initialize(self):  # noqa: D102
+        pass
+
     def execute(self):  # noqa: D102
-        self.detection.run(self.ctx)
-        self.estimation.run(self.ctx)
+        self.detection.run()
+        self.classification.run()
+        if not self.ctx.panels:
+            return
+        if self.ctx.target_robot is None or not self.ctx.target_robot.panels:
+            self.targeting.run()
+        self.estimation.run()
         print(self.ctx.radii)
+        print()
         display.show_windows()

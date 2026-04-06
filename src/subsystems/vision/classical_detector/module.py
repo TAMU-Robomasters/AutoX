@@ -33,7 +33,7 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
             print(f"Error in get_cord for panel: {e}")
             continue
         # remove panels that are yawed too much
-        if abs(np.degrees(panel.rvec[2])) < 40:
+        if abs(np.degrees(panel.rvec[2])) < 90:
             panels.append(
                 ArmorPanel(
                     icon=panel.id if hasattr(panel, "id") else None,

@@ -19,7 +19,8 @@ from src.subsystems.ballistic_solver import BallisticSolverModule
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import EmbeddedCommunicator
-from src.subsystems.estimation import (
+
+from src.subsystems.pf import (
     ParticleFilterEstimationModule,
     _default_particle_filter,
 )
@@ -28,7 +29,12 @@ from src.subsystems.vision import ClassicalDetectorModule
 from src.types.autoaim import ParticleFilterAutoAimContext
 from src.toolbox.globals import config
 from src.subsystems.video_streaming.video_stream import create_video_stream
+from src.types.autoaim import BallisticSolution
+from src.toolbox.timeout import Timeout
 
+import time
+
+RESET_TIMEOUT_MS = 300
 METERS_TO_CM = 100
 
 
@@ -65,77 +71,77 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self.estimation.set_particle_filter(pf)
         self.ballistic.set_particle_filter(pf)
 
+        self.target_timeout = Timeout(duration=RESET_TIMEOUT_MS / 1E3)  # 500 ms timeout for filter updates
+
         self.communicator = EmbeddedCommunicator()
         # Fallback pitch/yaw sent when no target is available
         self._last_pitch: float = float(np.deg2rad(-10))
         self._last_yaw: float = 0.0
+        self.alignment_time_ms: int = 255  # Large default alignment time when no target is present
+        self.cv_state: int = 0  # Default CV state (0 = no panel in view)
 
     def execute(self) -> None:
         """Run one iteration of the particle-filter auto-aim pipeline."""
+        self.ctx.start_loop_time = time.perf_counter()
+
+        self.alignment_time_ms = 255 
+        self.cv_state = 0
         # ----------------------------------------------------------
         # 1. Detection: frame -> panels
         # ----------------------------------------------------------
         self.detection.run()
 
         panels = self.ctx.panels
+        # print(panels)
         #? why max 3 panels?
         has_panels = panels is not None and 0 < len(panels) < 3
 
+
         if not has_panels:
-            # No panels: send last known angles with large alignment time,
-            # reset the filter, and return early.
-            print("No panels detected")
-            self.communicator.send_angles_to_embedded(
-                pitch=self._last_pitch,
-                yaw=self._last_yaw,
-                time_until_next_fire=10_000,
-                cv_state=0,
-            )
-            self.estimation.reset() #! should not reset unless timeout
-            self.ctx.target_robot = None
-            return
-        # ----------------------------------------------------------
-        # 2. Classification: panels -> sentry, hero, standard
-        # ----------------------------------------------------------
-        self.classification.run()
+            if self.target_timeout.is_expired:
+                self.ctx.target_robot = None
+            self.ctx.new_observation = False
+        else:
+            self.ctx.new_observation = True
+            self.target_timeout.reset()  # Reset the timeout whenever we get a new observation
 
-        # ----------------------------------------------------------
-        # 3. Targeting (only if we haven't selected a robot yet)
-        # ----------------------------------------------------------
-        if self.ctx.target_robot is None or not self.ctx.target_robot.panels:
-            self.targeting.run()
+            # ----------------------------------------------------------
+            # Classification: panels -> sentry, hero, standard
+            # ----------------------------------------------------------
+            self.classification.run()
+
+            # print(f"panesl classification:{self.ctx.standard.panels[0].position}")
+            # ----------------------------------------------------------
+            # Targeting (only if we haven't selected a robot yet)
+            # ----------------------------------------------------------
+            # if self.ctx.target_robot is None or not self.ctx.target_robot.panels:
+            self.ctx.target_robot = self.ctx.standard if self.ctx.standard and self.ctx.standard.panels else None
+
+
+            # ----------------------------------------------------------
+            # Transform panels to turret frame via embedded communicator
+            # ----------------------------------------------------------
+            frame_delay_ms: int = 0
+            transformation_data = self.communicator.get_camera_to_ballistic_transformation(
+                frame_delay_ms
+            )
+            if transformation_data is None:
+                # Could not get transformation; skip this frame
+                print("warning: no transformation data received from embedded")
+                return
+
+            # print(f"target panels before transformation: {target.panels[0].position}")
+            turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
+            _transform_panels_to_turret_frame(
+                panels, camera_to_turret_matrix, turret_yaw
+            )
         
-        print(f"Target robot: {self.ctx.target_robot}")
+        # print(f"Target robot: {self.ctx.target_robot}")
+        # print(f"Panel position after classification: {self.ctx.target_robot.panels[0].position}")
+      
+     
 
-        target = self.ctx.target_robot
-        if target is None or not target.panels:
-            # All classified robots are empty somehow
-            self.communicator.send_angles_to_embedded(
-                pitch=self._last_pitch,
-                yaw=self._last_yaw,
-                time_until_next_fire=10_000,
-                cv_state=0,
-            )
-            self.estimation.reset()
-            return
-
-        # ----------------------------------------------------------
-        # 4. Transform panels to turret frame via embedded communicator
-        # ----------------------------------------------------------
-        frame_delay_ms: int = 0
-        transformation_data = self.communicator.get_camera_to_ballistic_transformation(
-            frame_delay_ms
-        )
-        if transformation_data is None:
-            # Could not get transformation; skip this frame
-            print("warning: no transformation data received from embedded")
-            return
-
-        turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
-        _transform_panels_to_turret_frame(
-            target.panels, camera_to_turret_matrix, turret_yaw
-        )
-
+        # print(f"Target panels after transformation: {target.panels[0].position}")
         # ----------------------------------------------------------
         # 5. Estimation: target_robot -> estimate
         # ----------------------------------------------------------
@@ -143,6 +149,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 
         if self.ctx.estimate is None:
             return
+        
+        print(self.ctx.estimate.value)
 
         # ----------------------------------------------------------
         # 6. Ballistic solver: estimate -> solution
@@ -150,25 +158,29 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self.ballistic.run()
 
         solution = self.ctx.solution
+
         if solution is None:
+            # print("Ballistic solver failed to produce a solution.")
             return
 
         # ----------------------------------------------------------
-        # 7. Send solution to embedded
+        # solution to embedded
         # ----------------------------------------------------------
-        self._last_pitch = np.degrees(0)
+        self._last_pitch = solution.pitch
         self._last_yaw = solution.yaw
-
-        print(f"Sending angles to embedded: pitch={solution.pitch:.3f}, yaw={solution.yaw:.3f}, alignment_time={solution.alignment_time_ms}ms")
-        self.communicator.send_angles_to_embedded(
-            pitch=self._last_pitch,
-            yaw=solution.yaw,
-            time_until_next_fire=solution.alignment_time_ms,
-            cv_state=1,
-        )
+        self.alignment_time_ms = solution.alignment_time_ms
+        self.cv_state = 1  # CV state indicating a valid target is present
+    
 
     def update(self) -> None:
         """Display windows to screen."""
+        self.communicator.send_angles_to_embedded(
+            pitch=self._last_pitch,
+            yaw=self._last_yaw,
+            time_until_next_fire=self.alignment_time_ms,
+            cv_state=self.cv_state,
+        )
+        print(f'time to execute loop: {(time.perf_counter() - self.ctx.start_loop_time)*1000:.2f}ms')
         if config.log.display_live_frames:
             display.show_windows()
         
