@@ -13,5 +13,4 @@ def main():
     from src.engines.particle_filter_autoaim import ParticleFilterAutoAimEngine
 
     auto_aim: ParticleFilterAutoAimEngine = ParticleFilterAutoAimEngine()
-    
     auto_aim.start()

@@ -9,6 +9,15 @@ from src.core.module import Context
 from src.toolbox.geometry_tools import BoundingBox
 
 
+
+@dataclass
+class Frame:
+    """Container for a video frame and its associated metadata."""
+
+    data: np.ndarray
+    timestamp: float
+
+
 # ---------------------------------------------------------------------------
 # Panel
 # ---------------------------------------------------------------------------
@@ -116,7 +125,7 @@ class AutoAimContext(Context):
     # Targeting stage
     target_robot: Optional[EnemyRobot] = None
 
-    frame: Optional[np.ndarray] = None
+    frame_ts: Optional[float] = None
     panels: Optional[List[ArmorPanel]] = None
     target_panel: Optional[ArmorPanel] = None
     prev_target_panel: Optional[ArmorPanel] = None

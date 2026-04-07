@@ -11,7 +11,6 @@ from src.types.autoaim import AutoAimContext
 from src.types.ipc import ImageMessage, LogMessage
 from src.subsystems.estimation.module import RadiiEstimatorModule
 
-
 """
 # TODO: make context_type just accept the concept
 class SimpleAutoAimEngine(Engine[AutoAimContext]):
@@ -85,7 +84,6 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
 
     def initialize(self):  # noqa: D102
         pass
-
 
     def initialize(self):  # noqa: D102
         pass

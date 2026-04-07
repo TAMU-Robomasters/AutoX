@@ -172,7 +172,7 @@
                 camera: webcam
                 camera_index: 0
                 camera_exposure: 35
-                camera_fps: 90
+                camera_fps: 20
                 camera_width: 1280
                 camera_height: 720
                 camera_instrinsics_path: "mrcal_sentry_cam"

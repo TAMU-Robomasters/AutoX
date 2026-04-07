@@ -20,10 +20,10 @@ from src.types.autoaim import (
 
 def _default_particle_filter() -> ParticleFilter:
     """Create a particle filter with default hyperparameters."""
-    Q = cp.diag(cp.array([10, 10, 20, 20, 0.1, 1], dtype=cp.float32))
-    R = cp.diag(cp.array([50, 50,15], dtype=cp.float32))
+    Q = cp.diag(cp.array([10 ** 2, 10 ** 2, 20 ** 2, 20 ** 2, 0.01 ** 2, 0.5 ** 2], dtype=cp.float32))
+    R = cp.diag(cp.array([10 ** 2, 10 ** 2, 0.2 ** 2], dtype=cp.float32))
     prior = cp.array([0, 0, 0, 0, 0, 0], dtype=cp.float32)
-    return ParticleFilter(num_particles=10_000, Q=Q, R=R, prior=prior, num_meas=3)
+    return ParticleFilter(num_particles=35_000, Q=Q, R=R, prior=prior, num_meas=3)
 
 
 class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
@@ -40,6 +40,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         self._initialised: bool = False
         self.is_their_target_prev = False
         self.is_their_target = False
+        self.last_update_time = time.monotonic()
 
     def set_particle_filter(self, pf: ParticleFilter) -> None:
         """Inject the particle filter instance created by the engine."""
@@ -87,6 +88,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
                 ],
                 dtype=cp.float32,
             )
+            last_update_time = self.last_update_time
             self.pf.reinit(prior)
 
         self.is_their_target_prev = self.is_their_target
@@ -95,9 +97,14 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             measurement = cp.array(
                 [panel.position[0], panel.position[1], panel.yaw], dtype=cp.float32
             )
-            estimate, confidence = self.pf.update(current_time, measurement)
+            dt = self.ctx.frame_ts - self.last_update_time
+            self.last_update_time = self.ctx.frame_ts
+            estimate, confidence = self.pf.update(dt, measurement)
         else:
-            estimate, confidence = self.pf.update_with_no_observation(current_time)
+            current_time = time.monotonic()
+            dt = current_time - self.last_update_time
+            self.last_update_time = current_time
+            estimate, confidence = self.pf.update_with_no_observation(dt)
 
         return RobotStateEstimate(
             value=estimate,

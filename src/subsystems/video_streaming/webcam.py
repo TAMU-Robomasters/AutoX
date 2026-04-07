@@ -2,9 +2,12 @@
 
 import cv2 as cv
 import numpy as np
+import time
 
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
 from src.toolbox.globals import path_to, config
+
+from src.types.autoaim import Frame
 
 
 class WebCamVideoStream(VideoStream):
@@ -34,10 +37,11 @@ class WebCamVideoStream(VideoStream):
 
     def get_frame(self):
         """Return the most recent frame from the webcam."""
+        timestamp = time.monotonic()  # Ensure monotonic time for timestamping if needed
         ret, frame = self.cap.read()
         if not ret:
             raise Exception("Could not read frame from webcam.")
-        return frame
+        return Frame(data=frame, timestamp=timestamp)
 
     def get_intrinsics(self) -> Intrinsics:
         """Return camera intrinsics loaded from calibration presets."""

@@ -57,7 +57,7 @@ class ParticleFilter:
         self.zk = cp.empty((num_particles, self.num_meas), dtype=cp.float32)
 
         # ---- Threshold ----
-        self.thresh = num_particles / 2
+        self.thresh = num_particles / 3
 
         # ---- Initial estimate ----
         self.estimate = cp.mean(self.xk, axis=0)
@@ -136,7 +136,7 @@ class ParticleFilter:
         self.noise = cp.random.standard_normal(self.noise.shape, dtype=cp.float32)
         self.noise *= self.Q_sqrt_diag
         self.xk += self.noise
-        self.xk[:, 5] = self.xk[:, 5] % 39
+        self.xk[:, 5] = self.xk[:, 5] % 31.42 # nyquist thing
 
     def _measurement_model(self, measurement: cp.ndarray) -> None:
         """Compute predicted measurements for each particle.
@@ -147,7 +147,7 @@ class ParticleFilter:
         x_c = self.xk[:, 0][:, None]  # shape (N,1)
         y_c = self.xk[:, 1][:, None]
         theta = self.xk[:, 4][:, None]
-        r = -23.5
+        r = 23.5
 
         meas = cp.array(measurement, dtype=cp.float32)
 
@@ -193,13 +193,6 @@ class ParticleFilter:
         self.zk[:, 1] = panel_y[arange, best_idx]
         self.zk[:, 2] = panel_yaw[arange, best_idx]
 
-        # Update robot yaw estimate per particle
-        k_offsets = best_idx.astype(cp.float32) * ninety
-        inferred_robot_yaw = meas[2] - k_offsets
-        self.xk[:, 4] = cp.arctan2(
-            cp.sin(inferred_robot_yaw), cp.cos(inferred_robot_yaw)
-        )
-
     def _weights(self, measurement: cp.ndarray) -> None:
         """Update particle weights using Mahalanobis distance."""
         diff = self.zk - measurement
@@ -220,6 +213,7 @@ class ParticleFilter:
         n_eff = 1.0 / cp.dot(self.weights, self.weights)
 
         if n_eff < self.thresh:
+            print("resample")
             N = self.num_particles
             cdf = cp.cumsum(self.weights)
             random_offsets = cp.random.rand(N, dtype=cp.float32)
@@ -280,11 +274,11 @@ class ParticleFilter:
 
 if __name__ == '__main__':
     import time
-    prior = cp.array([30, 100, 0.1, 0.1, 40, 0, 21], dtype=cp.float32)
-    Q = cp.diag(cp.array([1, 1, 100, 100, 10, 1, .1], dtype=cp.float32))
-    R = cp.diag(cp.array([2, 2, 1], dtype=cp.float32))
+    prior = cp.array([30, 100, 0.1, 0.1, 40, 0], dtype=cp.float32)
+    Q = cp.diag(cp.array([1, 1, 10, 10, 10, 1], dtype=cp.float32))
+    R = cp.diag(cp.array([5, 5, 1], dtype=cp.float32))
 
-    pf = ParticleFilter(30_000, Q, R, prior, 3, compute_noise_stats=True)
+    pf = ParticleFilter(30_000, Q, R, prior, 3, compute_noise_stats=False)
     measurement = cp.array([100, 100, 30], dtype=cp.float32)
     elapsed = 0
 
@@ -292,11 +286,9 @@ if __name__ == '__main__':
         start_time = time.perf_counter()
         estimate, confidence = pf.update(elapsed, measurement)
         elapsed = time.perf_counter() - start_time
-        stats = pf.noise_stats(host=True)
+        stats = pf.noise_stats(host=False)
         print(
             f"\nTime: {elapsed*1000:.2f} ms, Estimate: {estimate}, confidence: {confidence}, "
-            f"\nvx_std: {stats['vx_std']:.4f}, vy_std: {stats['vy_std']:.4f}, "
-            f"\nspeed_std: {stats['speed_std']:.4f}, omega_std: {cp.rad2deg(stats['omega_std']):.4f}"
         )
 
     pf.reinit(prior)

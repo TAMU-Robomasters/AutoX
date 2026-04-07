@@ -150,7 +150,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         if self.ctx.estimate is None:
             return
         
-        print(self.ctx.estimate.value)
+        print(self.ctx.estimate.value[5])
 
         # ----------------------------------------------------------
         # 6. Ballistic solver: estimate -> solution
@@ -181,8 +181,10 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             cv_state=self.cv_state,
         )
         print(f'time to execute loop: {(time.perf_counter() - self.ctx.start_loop_time)*1000:.2f}ms')
+        cv.waitKey((int(50 - (time.perf_counter()-self.ctx.start_loop_time)*1000)))  # Needed to update OpenCV windows
         if config.log.display_live_frames:
             display.show_windows()
+        
         
 
 # ---------------------------------------------------------------------------
