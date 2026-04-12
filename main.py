@@ -1,6 +1,8 @@
 """Entry point for the AutoX application."""
 
-from src.main import main
+from src.engines.autoaim import TestPulseEstimationEngine
+from src.types.autoaim import AutoAimContext
 
 if __name__ == "__main__":
-    main()
+    engine = TestPulseEstimationEngine()
+    engine.start()

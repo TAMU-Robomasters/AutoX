@@ -30,14 +30,14 @@
         (default):
             debug: true
             classical:
-                cam_width: 1920
-                cam_height: 1080
+                cam_width: 1280
+                cam_height: 720
                 cam_fps: 90
                 cam_exposure: 80
 
                 # image processing
-                blue_thresh: [ 215, 240 ]
-                red_thresh: [ 215, 240 ]
+                blue_thresh: [ 200, 240 ]
+                red_thresh: [ 200, 240 ]
 
                 # light detection
                 angle_diff_multiplier: 1
@@ -48,11 +48,11 @@
                 angle_diff_thresh: 45
                 misalignment_thresh: 30
                 height_ratio_thresh: [ 0.5, 2.0 ]
-                score_thresh: 50
+                score_thresh: 200
 
                 # icon detection
                 icon_adaptive_thresh: [ 101, -5 ]
-                icon_tolerance: 80
+                icon_tolerance: 40
                 show_icon_filters: false
             
             our_team_color: 'red' # 'red' or 'blue'
@@ -65,6 +65,8 @@
                 camera_has_acceleration: false
                 camera_has_gyro: false
                 flip_camera: false
+                usb_cam_exposure: null  # set to an int (e.g. 300) to enable manual exposure; null = leave auto on
+                                        # units are 100µs (e.g. 300 = 30ms shutter)
             model:
                 which_model: yolo_v8 
                 hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]
@@ -107,10 +109,15 @@
                 enable: False    # when true, modules use @mock methods instead of @real
                 hardware: []     # list of available hardware (e.g. ["jetson", "gpu"]). methods with @real(requires="X") fall back to mock if X is not listed here.
 
+            ballistic:
+                gravity: 981              # cm/s^2
+                projectile_velocity: 2300 # cm/s
+                z_offset: 28.5              # cm (vertical offset to target)
+
             communication:
                 timeout: 0.05
                 serial_baudrate: 115200
-                serial_port: null
+                serial_port: "/dev/ttyTHS1"
                 
             zed:
                 resolution: "HD720"       # HD2K, HD1080, HD720, VGA, LAST
@@ -152,7 +159,23 @@
         CAMERA=WEBCAM:
             hardware:
                 camera: webcam
-                camera_index: 2
+                camera_index: 0
+                camera_exposure: 35
+                camera_fps: 90
+                camera_width: 1280
+                camera_height: 720
+                camera_intrinsics_path: "mrcal_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
+        
+# TODO fix this after you fix threading bug      
+        CAMERA=SENTRY_CAM:
+            hardware:
+                camera: webcam
+                camera_index: 0
+                camera_exposure: 35
+                camera_fps: 20
+                camera_width: 1280
+                camera_height: 720
+                camera_instrinsics_path: "mrcal_sentry_cam"
         
         
         V8:
@@ -166,7 +189,7 @@
             model:
                 hardware_acceleration: "tensor_rt"
             communication:
-                serial_port: "/dev/ttyTHS0" # UART serial 0 works but try 1
+                serial_port: "/dev/ttyTHS1" 
             log:
                 save_frame_to_file: false
         BOARD=LAPTOP:
@@ -210,7 +233,7 @@
             hardware:
                 flip_camera: true
 
-        GUI:
+        DISPLAY:
             log:
                 display_live_frames: true
         

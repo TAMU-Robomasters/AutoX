@@ -64,10 +64,4 @@ class PulseEstimation(Module[AutoAimContext]):
 
         self.prev_panels = panels  # Update previous panel state for next iteration     
     
-            
-        
-        
-        
-
-        
         return self.durationFilter.get_value(), self.intervalFilter.get_value()
