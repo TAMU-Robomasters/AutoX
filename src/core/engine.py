@@ -41,6 +41,7 @@ class Engine(_Process, ABC, Generic[T]):
         """
         super().__init__()
         self._modules: List[Module] = modules
+        self.ctx: T
         self._initial_context_keys: set[str] = {f.name for f in fields(context_type)}
         self._validate_wiring()
 
@@ -61,6 +62,7 @@ class Engine(_Process, ABC, Generic[T]):
         self.initialize()
         while self.active:
             self.execute()
+            self.send_data_to_rerun_process()
 
     @abstractmethod
     def execute(self):
@@ -70,6 +72,16 @@ class Engine(_Process, ABC, Generic[T]):
         """Signal the engine to stop and wait for it to finish."""
         self.active = False
         self.join()
+
+    def send_data_to_rerun_process(self):
+        """Send data to the Rerun process for visualization.
+
+        This is a placeholder method that can be overridden by subclasses to send
+        specific data to the Rerun process. By default, it does nothing.
+        """
+        engine_state = self.ctx
+        # use something call pipes to send to vizualization enginee
+        pass
 
     # ------------------------------------------------------------------
     # Validation
