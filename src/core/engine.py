@@ -60,9 +60,17 @@ class Engine(_Process, ABC, Generic[T]):
         """
         self.active = True
         self.initialize()
-        while self.active:
-            self.execute()
-            self.send_data_to_rerun_process()
+        try:
+            while self.active:
+                self.execute()
+                self.send_data_to_rerun_process()
+        except KeyboardInterrupt:
+            self.end()
+            self.terminate()
+            print("\nProgram terminated by user.")
+
+    def end(self):
+        pass
 
     @abstractmethod
     def execute(self):

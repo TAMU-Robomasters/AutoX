@@ -191,6 +191,10 @@ class Module(ABC, Generic[T]):
     def run(self, ctx: T) -> T:
         """Run the module on the given context."""
         return self._run_method(ctx)
+    
+    def init_stuff(self):
+        """put module specifc initialization stuff herer"""
+        pass
 
     # ------------------------------------------------------------------
     # Properties / accessors

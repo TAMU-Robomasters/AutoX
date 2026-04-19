@@ -1,12 +1,7 @@
 
 import rerun as rr
-import math
-import numpy as np
 import av
-import numpy.typing as npt
 from scipy.spatial.transform import Rotation as rot
-import pyrealsense2 as rs
-import os
 import random
 import time
 
@@ -19,27 +14,24 @@ class Simulation(Module[AutoAimContext]):
         super().__init__(
             name="rerun_simulation",
             context=context,
-            inputs=["panels", "frame"],
+            inputs=["panels"],
             outputs=[],
         )
-        self.initStuff()
 
-    def initStuff(self, panel, frame) -> None:
-        self.panel = panel
-        self.frame = frame
+    def init_stuff(self) -> None:
         rr.init("rerun_fake_data_test", spawn=False, recording_id="pleaseeework")
         
         #computer stuff needs to be sent to tailscale ip
-        laptopIP = "100.116.0.48"
+        laptopIP = "10.245.54.24"
         rr.connect_grpc(f"rerun+http://{laptopIP}:9876/proxy")
 
         rr.set_time("stable_time", duration=0)
         rr.log("logs", rr.TextLog("please work"))
-        self.laptopCamera()
-        self.pipelineInit()
-        self.logCameras()
-
-        self.simulate(self.fakePanels())
+        #self.laptopCamera()
+        #self.pipelineInit()
+        #self.logCameras()
+    
+    def ending(self):
         time.sleep(100)
         print("completeee")
         rr.disconnect()
@@ -53,8 +45,10 @@ class Simulation(Module[AutoAimContext]):
             points.append([x,y,z])
         return points
 
-    def simulate(self, panel):
-        for f in self.input_container.decode(video=0):
+    @real()
+    def _run_simulate(self, panels):
+        self.logEverythingElse(panels)
+        '''for f in self.input_container.decode(video=0):
             f.pict_type = av.video.frame.PictureType.NONE
             for packet in self.stream.encode(f):
                 if packet.pts is None:
@@ -62,7 +56,8 @@ class Simulation(Module[AutoAimContext]):
                 rr.set_time("stable_time", duration=float(packet.pts * packet.time_base))
                 for c in range(4):
                     rr.log(f"bot/cam{c+1}", rr.VideoStream.from_fields(sample=bytes(packet)))
-            self.logEverythingElse(panel)
+            panels = AutoAimContext.panels
+            self.logEverythingElse(panels)'''
         
         for i in range(400):
             time = i*0.01
@@ -146,7 +141,7 @@ class Simulation(Module[AutoAimContext]):
         )
         
         #ESTIMATED OTHER ROBOT LOCATIONS
-        rr.log(
+        '''rr.log(
             "otherbot/main",
             rr.Cylinders3D(lengths=0.5, radii=0.3, colors=[128,128,200], fill_mode=1, centers=(0,0,0))
         )
@@ -171,10 +166,6 @@ class Simulation(Module[AutoAimContext]):
         rr.log(
             "otherbot",
             rr.Transform3D(translation=[0,0,0.1]),
-        )
-
-
-if __name__ == "__main__":
-    Simulation(panel=None, frame=None)
+        )'''
 
 
