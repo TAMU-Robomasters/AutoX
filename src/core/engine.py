@@ -39,7 +39,7 @@ class Engine(_Process, ABC, Generic[T]):
                             validating that inputs and outputs from modules are
                             actually valid and present in the context.
         """
-        super().__init__()
+        super().__init__(pipe)
         self._modules: List[Module] = modules
         self.ctx: T
         self._initial_context_keys: set[str] = {f.name for f in fields(context_type)}

@@ -152,7 +152,7 @@
         CAMERA=WEBCAM:
             hardware:
                 camera: webcam
-                camera_index: 0
+                camera_index: 8
         
         
         V8:

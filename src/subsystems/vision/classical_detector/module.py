@@ -73,7 +73,7 @@ class ClassicalDetectorModule(Module[AutoAimContext]):
         # Not enough lights to form a panel
         if len(lights) <= 1:
             panels = None
-            return panels
+            return panels   
 
         try:
             pairs = armor.pairing(lights)

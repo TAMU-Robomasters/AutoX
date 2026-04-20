@@ -44,10 +44,24 @@ class Simulation(Module[AutoAimContext]):
             z = round(random.uniform(-2,2),2)
             points.append([x,y,z])
         return points
+    
+    def changePanels(self, panels):
+        points = []
+        if(panels != None):
+            for pan in panels:
+                x = pan.position[0]/100
+                y = pan.position[1]/100
+                z = pan.position[2]/100
+                points.append([x,y,z])
+        return points
 
+# robot is 0.4 m, 0.15 m
     @real()
     def _run_simulate(self, panels):
-        self.logEverythingElse(panels)
+        pans = self.changePanels(panels)
+        print(pans)
+        self.logEverythingElse(pans)
+        #self.logEverythingElse(self.fakePanels())
         '''for f in self.input_container.decode(video=0):
             f.pict_type = av.video.frame.PictureType.NONE
             for packet in self.stream.encode(f):
