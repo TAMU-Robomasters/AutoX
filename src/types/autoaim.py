@@ -82,7 +82,7 @@ class RobotStateEstimate:
     """State estimate produced by the particle filter.
 
     Attributes:
-        value: 7-D state vector [x_c, y_c, vx, vy, theta, omega, radius].
+        value: 6-D state vector [x_c, y_c, vx, vy, theta, omega].
         timestamp: ``time.perf_counter()`` at the moment the estimate was computed.
         confidence: Effective sample ratio (N_eff / N) from the particle filter.
     """
@@ -157,4 +157,5 @@ class ParticleFilterAutoAimContext(Context):
     # Ballistic stage
     solution: Optional[BallisticSolution] = None
 
+    frame_ts: Optional[float] = None
     new_observation: bool = False

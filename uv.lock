@@ -40,9 +40,10 @@ wheels = [
 [[package]]
 name = "autox"
 version = "0.1.0a0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "filterpy" },
+    { name = "matplotlib" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pyserial" },
@@ -72,6 +73,7 @@ dev = [
 requires-dist = [
     { name = "cupy-cuda12x", marker = "extra == 'gpu'", specifier = ">=13.6.0" },
     { name = "filterpy", specifier = ">=1.4.5" },
+    { name = "matplotlib", specifier = ">=3.7" },
     { name = "numpy", specifier = "==1.24.*" },
     { name = "opencv-python", specifier = "==4.7.*" },
     { name = "pyserial", specifier = "==3.5.*" },

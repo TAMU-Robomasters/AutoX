@@ -112,7 +112,7 @@
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
-                z_offset: 28.5              # cm (vertical offset to target)
+                z_offset: 0              # cm (vertical offset to target)
 
             communication:
                 timeout: 0.05
@@ -160,24 +160,24 @@
             hardware:
                 camera: webcam
                 camera_index: 0
-                camera_exposure: 35
+                camera_exposure: 20
                 camera_fps: 90
                 camera_width: 1280
                 camera_height: 720
-                camera_intrinsics_path: "mrcal_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
+                camera_intrinsics_path: "main_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
         
 # TODO fix this after you fix threading bug      
         CAMERA=SENTRY_CAM:
             hardware:
-                camera: webcam
+                camera: usb_cam
                 camera_index: 0
                 camera_exposure: 35
-                camera_fps: 20
+                camera_fps: 90
                 camera_width: 1280
                 camera_height: 720
-                camera_instrinsics_path: "mrcal_sentry_cam"
+                camera_instrinsics_path: "main_sentry_cam"
         
-        
+    
         V8:
             model:
                 which_model: yolo_v8

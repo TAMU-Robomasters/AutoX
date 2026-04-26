@@ -96,6 +96,6 @@ class AdvancedAutoAimEngine(Engine[AutoAimContext]):
         if self.ctx.target_robot is None or not self.ctx.target_robot.panels:
             self.targeting.run()
         self.estimation.run()
-        print(self.ctx.radii)
-        print()
+        # print(self.ctx.radii)
+        # print()
         display.show_windows()

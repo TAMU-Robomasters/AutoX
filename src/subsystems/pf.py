@@ -6,7 +6,6 @@ robot's panel observations into a GPU-accelerated particle filter.
 import time
 from typing import Optional
 
-import cupy as cp
 import numpy as np
 
 from src.core.module import Module, real, mock
@@ -19,12 +18,25 @@ from src.types.autoaim import (
 
 
 def _default_particle_filter() -> ParticleFilter:
-    """Create a particle filter with default hyperparameters."""
-    Q = cp.diag(cp.array([10 ** 2, 10 ** 2, 20 ** 2, 20 ** 2, 0.01 ** 2, 0.5 ** 2], dtype=cp.float32))
-    R = cp.diag(cp.array([10 ** 2, 10 ** 2, 0.2 ** 2], dtype=cp.float32))
-    prior = cp.array([0, 0, 0, 0, 0, 0], dtype=cp.float32)
-    return ParticleFilter(num_particles=35_000, Q=Q, R=R, prior=prior, num_meas=3)
+    """Create a particle filter with default hyperparameters.
 
+    Values ported from full-state-estimation-sim/config.py, scaled from metres
+    to centimetres for AutoX's coordinate system (1 m = 100 cm).
+    """
+    # From sim: [0.7, 0.7, 2.0] m/s, rad/s  →  cm/s, rad/s
+    Q_vel    = np.array([70.0, 70.0, 1.5], dtype=np.float32)
+    # From sim: [1.0, 1.0, 0.1, 0.1, 0.3, 15.0]  (m, m, m/s, m/s, rad, rad/s)
+    init_std = np.array([100.0, 100.0, 10.0, 10.0, 0.3, 15.0], dtype=np.float32)
+    prior    = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    return ParticleFilter(
+        num_particles=40_000,
+        Q_vel=Q_vel,
+        r_pos=8.0,          # sim: 0.08 m → 8.0 cm
+        r_yaw=np.radians(15),       # sim: deg2rad(10) rad  (unchanged)
+        prior=prior,
+        init_std=init_std,
+        radius=23.5,        # sim: 0.235 m → 23.5 cm
+    )
 
 class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
     """Estimate robot state using a particle filter."""
@@ -40,7 +52,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         self._initialised: bool = False
         self.is_their_target_prev = False
         self.is_their_target = False
-        self.last_update_time = time.monotonic()
+        self.last_update_time = time.perf_counter()
 
     def set_particle_filter(self, pf: ParticleFilter) -> None:
         """Inject the particle filter instance created by the engine."""
@@ -57,8 +69,8 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
         return self._pf
 
     def reset(self) -> None:
-        """Mark the filter as uninitialised so it will re-init on next observation."""
-        self._initialised = False
+        """Force re-initialisation on the next observation."""
+        self.is_their_target_prev = False
 
     @real("GPU")
     def _run_estimate(
@@ -74,72 +86,36 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")
 
         panel: ArmorPanel = target_robot.panels[0]
-        # Build prior if this is the first observation (or after reset)
-        if self.is_their_target and not self.is_their_target_prev: # new target
-            default_radius = 21.0
-            prior = cp.array(
-                [
-                    panel.position[0],
-                    panel.position[1],
-                    0,
-                    0,
-                    panel.yaw,
-                    0
-                ],
-                dtype=cp.float32,
+        if not self.is_their_target_prev and panel.position is not None:
+            prior = np.array(
+                [panel.position[0], panel.position[1], 0, 0, panel.yaw, 0],
+                dtype=np.float32,
             )
-            last_update_time = self.last_update_time
             self.pf.reinit(prior)
+            # Reset clock so first dt isn't stale from before target acquisition
+            self.last_update_time = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
 
-        self.is_their_target_prev = self.is_their_target
-        current_time = time.perf_counter() - self.ctx.start_loop_time if not self.ctx.start_loop_time is None else 0.0
+        self.is_their_target_prev = True
         if self.ctx.new_observation:
-            measurement = cp.array(
-                [panel.position[0], panel.position[1], panel.yaw], dtype=cp.float32
-            )
+            measurements = np.array(
+                [[p.position[0], p.position[1], p.yaw]
+                 for p in target_robot.panels if p.position is not None],
+                dtype=np.float32,
+            )  # shape (M, 3)
             dt = self.ctx.frame_ts - self.last_update_time
             self.last_update_time = self.ctx.frame_ts
-            estimate, confidence = self.pf.update(dt, measurement)
+            estimate, confidence = self.pf.update(dt, measurements)
         else:
-            current_time = time.monotonic()
+            current_time = time.perf_counter()
             dt = current_time - self.last_update_time
+            assert dt >= 0, f"Negative dt computed in estimation module: {dt:.4f}s (current_time={current_time:.4f}, last_update_time={self.last_update_time:.4f})"
+
             self.last_update_time = current_time
             estimate, confidence = self.pf.update_with_no_observation(dt)
 
         return RobotStateEstimate(
             value=estimate,
-            timestamp=time.perf_counter(),
+            timestamp=self.last_update_time,
             confidence=float(confidence),
-        )
-
-    @mock
-    def _run_mock_estimate(
-        self, target_robot: Optional[EnemyRobot]
-    ) -> Optional[RobotStateEstimate]:
-        """Mock estimation that returns a fixed state estimate."""
-        if target_robot is None or not target_robot.panels:
-            return None
-
-        panel = target_robot.panels[0]
-        if panel.position is None:
-            return None
-
-        # Return a dummy estimate with the panel's position and yaw, zero velocity,
-        # and a fixed radius. Confidence is set to 1.0 for simplicity.
-        return RobotStateEstimate(
-            value=np.array(
-                [
-                    panel.position[0],
-                    panel.position[1],
-                    0,
-                    0,
-                    panel.yaw,
-                    0,
-                    21.0,
-                ],
-                dtype=np.float32,
-            ),
-            timestamp=time.perf_counter(),
-            confidence=1.0,
         )
 

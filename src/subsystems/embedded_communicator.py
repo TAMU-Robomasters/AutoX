@@ -122,6 +122,9 @@ class EmbeddedCommunicator:
         """Send the ballistic solution to the embedded system."""
         if self.port is None:
             return False
+        assert time_until_next_fire >= 0, "time_until_next_fire must be non-negative"
+        if time_until_next_fire > 255:
+            time_until_next_fire = 255
         message = JetsonMessage(
             magic=ord(magic),
             messageType=ord(message_type),

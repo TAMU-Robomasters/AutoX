@@ -13,6 +13,8 @@ Full pipeline:
 
 import cv2 as cv
 import numpy as np
+from multiprocessing import Queue
+from typing import Optional
 
 from src.core.engine import Engine
 from src.subsystems.ballistic_solver import BallisticSolverModule
@@ -31,24 +33,25 @@ from src.toolbox.globals import config
 from src.subsystems.video_streaming.video_stream import create_video_stream
 from src.types.autoaim import BallisticSolution
 from src.toolbox.timeout import Timeout
+from src.subsystems.video_streaming.video_stream import video_stream
 
 import time
 
-RESET_TIMEOUT_MS = 300
+RESET_TIMEOUT_MS = 500
 METERS_TO_CM = 100
 
 
 class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
     """Auto-aim engine using a particle filter for state estimation."""
 
-    def __init__(self) -> None:
+    def __init__(self, queue: Optional[Queue] = None) -> None:
+        self._queue = queue
         self.ctx = ParticleFilterAutoAimContext()
 
         # Modules
         self.detection = ClassicalDetectorModule(self.ctx)
         # Remap outputs to match ParticleFilterAutoAimContext field names
         # ClassicalDetectorModule outputs "panels" which matches our context
-
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
         self.estimation = ParticleFilterEstimationModule(self.ctx)
@@ -80,6 +83,10 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self.alignment_time_ms: int = 255  # Large default alignment time when no target is present
         self.cv_state: int = 0  # Default CV state (0 = no panel in view)
 
+        if hasattr(video_stream, 'load_threaded_cam'):
+            video_stream.load_threaded_cam()
+
+
     def execute(self) -> None:
         """Run one iteration of the particle-filter auto-aim pipeline."""
         self.ctx.start_loop_time = time.perf_counter()
@@ -102,44 +109,46 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
                 self.ctx.target_robot = None
             self.ctx.new_observation = False
         else:
-            self.ctx.new_observation = True
-            self.target_timeout.reset()  # Reset the timeout whenever we get a new observation
+            self.target_timeout.reset()
 
             # ----------------------------------------------------------
             # Classification: panels -> sentry, hero, standard
             # ----------------------------------------------------------
             self.classification.run()
 
-            # print(f"panesl classification:{self.ctx.standard.panels[0].position}")
-            # ----------------------------------------------------------
-            # Targeting (only if we haven't selected a robot yet)
-            # ----------------------------------------------------------
-            # if self.ctx.target_robot is None or not self.ctx.target_robot.panels:
-            self.ctx.target_robot = self.ctx.standard if self.ctx.standard and self.ctx.standard.panels else None
-
+            # Only update target_robot when classification actually finds one;
+            # keep the previous target alive if classification misses a frame
+            # so we don't spuriously reinit the PF.
+            if self.ctx.standard and self.ctx.standard.panels:
+                self.ctx.target_robot = self.ctx.standard
 
             # ----------------------------------------------------------
             # Transform panels to turret frame via embedded communicator
             # ----------------------------------------------------------
-            frame_delay_ms: int = 0
+            current_time = time.perf_counter()
+            frame_delay_ms: int = int((current_time - self.ctx.frame_ts) * 1000) - 20
             transformation_data = self.communicator.get_camera_to_ballistic_transformation(
                 frame_delay_ms
             )
             if transformation_data is None:
-                # Could not get transformation; skip this frame
+                # Transformation unavailable — keep predicting without a new observation
                 print("warning: no transformation data received from embedded")
-                return
+                self.ctx.new_observation = False
+            else:
+                turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
+                _transform_panels_to_turret_frame(
+                    panels, camera_to_turret_matrix, turret_yaw
+                )
+                self.ctx.new_observation = True
+                if self.ctx.target_robot is not None and self.ctx.target_robot.panels:
+                    print(f"Panel position after classification: {self.ctx.target_robot.panels[0].position}")
+                    pan = self.ctx.target_robot.panels[0]
+                    if self._queue is not None and pan is not None:
+                        pass
+                        # self._queue.put_nowait(float(np.degrees(pan.yaw)))
 
-            # print(f"target panels before transformation: {target.panels[0].position}")
-            turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
-            _transform_panels_to_turret_frame(
-                panels, camera_to_turret_matrix, turret_yaw
-            )
         
         # print(f"Target robot: {self.ctx.target_robot}")
-        # print(f"Panel position after classification: {self.ctx.target_robot.panels[0].position}")
-      
-     
 
         # print(f"Target panels after transformation: {target.panels[0].position}")
         # ----------------------------------------------------------
@@ -149,8 +158,10 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 
         if self.ctx.estimate is None:
             return
-        
-        print(self.ctx.estimate.value[5])
+        print(f"Translational Velocity: {self.ctx.estimate.value[2]:.2f} cm/s, {self.ctx.estimate.value[3]:.2f} cm/s")
+        print("angular velocity:", self.ctx.estimate.value[5])
+        self._queue.put_nowait(self.ctx.estimate.value[5])
+
 
         # ----------------------------------------------------------
         # 6. Ballistic solver: estimate -> solution
@@ -166,7 +177,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         # ----------------------------------------------------------
         # solution to embedded
         # ----------------------------------------------------------
-        self._last_pitch = solution.pitch
+        self._last_pitch = 0
         self._last_yaw = solution.yaw
         self.alignment_time_ms = solution.alignment_time_ms
         self.cv_state = 1  # CV state indicating a valid target is present
@@ -174,14 +185,14 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 
     def update(self) -> None:
         """Display windows to screen."""
+        print(f"Sending to embedded: pitch={np.rad2deg(self._last_pitch):.2f} deg, yaw={np.rad2deg(self._last_yaw):.2f} deg, alignment_time={self.alignment_time_ms} ms, cv_state={self.cv_state}")
         self.communicator.send_angles_to_embedded(
             pitch=self._last_pitch,
             yaw=self._last_yaw,
             time_until_next_fire=self.alignment_time_ms,
             cv_state=self.cv_state,
         )
-        print(f'time to execute loop: {(time.perf_counter() - self.ctx.start_loop_time)*1000:.2f}ms')
-        cv.waitKey((int(50 - (time.perf_counter()-self.ctx.start_loop_time)*1000)))  # Needed to update OpenCV windows
+        print("fps:",  1 /(time.perf_counter() - self.ctx.start_loop_time))
         if config.log.display_live_frames:
             display.show_windows()
         

@@ -1,8 +1,6 @@
 """Entry point for the AutoX application."""
 import time
 
-from matplotlib.pylab import ma
-
 from src.main import main
 
 if __name__ == "__main__":

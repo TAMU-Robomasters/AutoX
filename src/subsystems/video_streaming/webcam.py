@@ -37,7 +37,7 @@ class WebCamVideoStream(VideoStream):
 
     def get_frame(self):
         """Return the most recent frame from the webcam."""
-        timestamp = time.monotonic()  # Ensure monotonic time for timestamping if needed
+        timestamp = time.perf_counter()  
         ret, frame = self.cap.read()
         if not ret:
             raise Exception("Could not read frame from webcam.")

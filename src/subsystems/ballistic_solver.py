@@ -9,7 +9,6 @@ import math
 import time
 from typing import Optional, Tuple
 
-import cupy as cp
 import numpy as np
 
 from src.core.module import Module, real
@@ -108,34 +107,39 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
             return None
 
         # Pick the flatter trajectory (shorter time of flight)
-        theta, t = min(solutions, key=lambda s: s[1])
+        pitch, t = min(solutions, key=lambda s: s[1])
 
         # Compensate for processing delay
-        time_offset = time.perf_counter() - estimate.timestamp
+        time_since_estimate = time.perf_counter() - estimate.timestamp
+        feeder_delay = 0.065 # 65 ms
+
         if self._pf is None:
             raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")
-        prediction = self._pf.prediction(t + time_offset)
+        prediction = self._pf.prediction(t + time_since_estimate + feeder_delay)
 
         yaw = float(
             np.arctan2(float(prediction[1]), float(prediction[0]))
-        ) - np.deg2rad(88) #?! why is there a magic 88 degree offset?
+        ) - np.deg2rad(90) 
 
         # Alignment time: when spinning panel will face the shooter
         theta0 = float(prediction[4])
         omega = float(prediction[5])
-        delta = np.arctan2(np.sin(yaw - theta0), np.cos(yaw - theta0))
+
+        thetas = np.array([0, np.pi / 2, np.pi, 3 * np.pi / 2]) + theta0
 
         if omega > 0:
-            alignment_time = (delta % (2 * np.pi)) / omega
+            angle_to_travel = (yaw - thetas) % (2 * np.pi)
+            alignment_time = float(np.min(angle_to_travel) / omega)
         elif omega < 0:
-            alignment_time = (delta % (-2 * np.pi)) / omega
+            angle_to_travel = (thetas - yaw) % (2 * np.pi)
+            alignment_time = float(np.min(angle_to_travel) / (-omega))
         else:
             alignment_time = 0.0
 
         alignment_time_ms = int(alignment_time * 1000)
 
         return BallisticSolution(
-            pitch=float(theta),
+            pitch=float(pitch),
             yaw=float(yaw),
             alignment_time_ms=alignment_time_ms,
         )

@@ -1,3 +1,11 @@
+[build-system]
+requires = ["scikit-build-core>=0.9", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+
 [project]
 name = "AutoX"
 version = "0.1.0a0"
@@ -7,6 +15,7 @@ requires-python = "==3.10.*"
 
 dependencies = [
     "filterpy>=1.4.5",
+    "matplotlib>=3.7",
     "numpy==1.24.*",
     "opencv-python==4.7.*",
     "pyserial==3.5.*",
@@ -68,5 +77,5 @@ module = [
 ignore_missing_imports = true
 
 [tool.ty.analysis]
-# Suppress errors for all jetson packages
-allowed-unresolved-imports = ["pyrealsense2.**"]
+# Suppress errors for all jetson packages and compiled CUDA extensions
+allowed-unresolved-imports = ["pyrealsense2.**", "pf_cuda_cv", "cupy"]

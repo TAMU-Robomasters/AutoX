@@ -10,7 +10,6 @@ def main():
     if config.mode != "production":
         throw_if_autoboot_is_already_running()
 
-    from src.engines.particle_filter_autoaim import ParticleFilterAutoAimEngine
+    from src.core.orchestrator import start_engines
 
-    auto_aim: ParticleFilterAutoAimEngine = ParticleFilterAutoAimEngine()
-    auto_aim.start()
+    start_engines()

@@ -13,6 +13,10 @@ from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
 # project imports
 from src.toolbox.globals import path_to, print, config
 
+import time
+
+from src.types.autoaim import Frame
+
 
 class BufferlesCvCapture:
     """Threaded OpenCV capture that keeps only the most recent frame.
@@ -79,37 +83,25 @@ class USBCamVideoStream(VideoStream):
                 allow_pickle=True,
             ),
         )
+        self.index = index
+        self.cap = None
 
+    def load_threaded_cam(self):
         try:
-            self.cap = BufferlesCvCapture(index)
+            self.cap = BufferlesCvCapture(self.index)
         except Exception as e:
             print(f"Error in BufferlesCvCapture: {e}")
             raise e
 
-    def _build_pipeline(self) -> str:
-        """Build the GStreamer pipeline string, injecting manual exposure if configured.
-
-        V4L2 exposure_auto values: 1 = manual, 3 = aperture priority (auto).
-        exposure_absolute is in 100µs units (e.g. 100 = 10ms shutter).
-        Set hardware.usb_cam_exposure in config to enable; null = leave auto on.
-        """
-        exposure = getattr(config.hardware, "usb_cam_exposure", None)
-        extra_controls = (
-            f' extra-controls="c,exposure_auto=1,exposure_absolute={int(exposure)}"'
-            if exposure is not None
-            else ""
-        )
-        return (
-            f"v4l2src device=/dev/video1 ! "
-            "image/jpeg, width=1280, height=720, framerate=90/1 ! "
-            "nvv4l2decoder mjpeg=1 ! "
-            "nvvidconv ! video/x-raw, format=BGRx ! "
-            "appsink"
-        )
-
     def get_frame(self):
         """Return the most recent frame from the USB camera."""
-        return self.cap.read()
+        assert self.cap, ("Please run load_threaded_cam before getting frame")
+
+        timestamp = time.perf_counter()  
+        frame = self.cap.read()
+
+        return Frame(data=frame, timestamp=timestamp)
+
 
     def get_intrinsics(self) -> Intrinsics:
         """Return camera intrinsics loaded from calibration presets."""
@@ -119,9 +111,9 @@ class USBCamVideoStream(VideoStream):
     @property
     def height(self):
         """Get height."""
-        return int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+        return int(config.hardware.camera_height)
 
     @property
     def width(self):
         """Get width."""
-        return int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))
+        return int(config.hardware.camera_width)
