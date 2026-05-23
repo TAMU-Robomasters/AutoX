@@ -101,8 +101,12 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
             print(f"Target is too close for ballistic solution (d={d:.2f}cm).")
             return None
 
+<<<<<<< HEAD
         # target_robot.panels[0].position[2]
         solutions = _theta_solver(d, self._z_offset, self._g, self._v)
+=======
+        solutions = _theta_solver(d, target_robot.panels[0].position[2] + self._z_offset, self._g, self._v)
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
         if solutions is None:
             print(f"WARNING: Theta solver failed to find a solution for d={d:.2f}cm, delta_z={target_robot.panels[0].position[2] + self._z_offset:.2f}cm")
             return None
@@ -112,7 +116,11 @@ class BallisticSolverModule(Module[ParticleFilterAutoAimContext]):
 
         # Compensate for processing delay
         time_since_estimate = time.perf_counter() - estimate.timestamp
+<<<<<<< HEAD
         feeder_delay = 0.15 # 65 ms
+=======
+        feeder_delay = 0.065 # 65 ms
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
 
         if self._pf is None:
             raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")

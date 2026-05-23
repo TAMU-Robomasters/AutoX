@@ -31,7 +31,11 @@ def _default_particle_filter() -> ParticleFilter:
     return ParticleFilter(
         num_particles=40_000,
         Q_vel=Q_vel,
+<<<<<<< HEAD
         r_pos=15.0,          # sim: 0.08 m → 8.0 cm
+=======
+        r_pos=8.0,          # sim: 0.08 m → 8.0 cm
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
         r_yaw=np.radians(15),       # sim: deg2rad(10) rad  (unchanged)
         prior=prior,
         init_std=init_std,

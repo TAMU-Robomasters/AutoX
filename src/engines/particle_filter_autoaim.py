@@ -34,8 +34,11 @@ from src.subsystems.video_streaming.video_stream import create_video_stream
 from src.types.autoaim import BallisticSolution
 from src.toolbox.timeout import Timeout
 from src.subsystems.video_streaming.video_stream import video_stream
+<<<<<<< HEAD
 from src.toolbox.globals import config
 
+=======
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
 
 import time
 
@@ -124,7 +127,10 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             if self.ctx.standard and self.ctx.standard.panels:
                 self.ctx.target_robot = self.ctx.standard
 
+<<<<<<< HEAD
             print(f"before transformation: {self.ctx.target_robot.panels[0].position.flatten()}")
+=======
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
             # ----------------------------------------------------------
             # Transform panels to turret frame via embedded communicator
             # ----------------------------------------------------------
@@ -162,8 +168,13 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         if self.ctx.estimate is None:
             return
         print(f"Translational Velocity: {self.ctx.estimate.value[2]:.2f} cm/s, {self.ctx.estimate.value[3]:.2f} cm/s")
+<<<<<<< HEAD
         print("angular velocity:", self.ctx.estimate.value[4])
         self._queue.put_nowait(np.degrees(self.ctx.estimate.value[4]))
+=======
+        print("angular velocity:", self.ctx.estimate.value[5])
+        self._queue.put_nowait(self.ctx.estimate.value[5])
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
 
 
         # ----------------------------------------------------------
@@ -180,8 +191,13 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         # ----------------------------------------------------------
         # solution to embedded
         # ----------------------------------------------------------
+<<<<<<< HEAD
         self._last_pitch = solution.pitch
         self._last_yaw = solution.yaw + np.deg2rad(config.ballistic.yaw_offset)
+=======
+        self._last_pitch = 0
+        self._last_yaw = solution.yaw
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
         self.alignment_time_ms = solution.alignment_time_ms
         self.cv_state = 1  # CV state indicating a valid target is present
     

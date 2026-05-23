@@ -112,8 +112,13 @@
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
+<<<<<<< HEAD
                 z_offset: -20             # cm (vertical offset to target)
                 yaw_offset: -4           # degrees (horizontal offset to target)
+=======
+                z_offset: 0              # cm (vertical offset to target)
+
+>>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
             communication:
                 timeout: 0.05
                 serial_baudrate: 115200
