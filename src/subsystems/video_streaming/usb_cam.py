@@ -6,6 +6,7 @@ import queue
 import threading
 
 import cv2 as cv
+import mrcal
 import numpy as np
 
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
@@ -72,17 +73,20 @@ class USBCamVideoStream(VideoStream):
     """
 
     def __init__(self, index: int) -> None:
-        """Load calibration and start the capture pipeline."""
-        self.intrinsics: Intrinsics = Intrinsics(
-            np.load(
-                f"{path_to.calibration_presets}/main_sentry_cam/dist.pkl",
-                allow_pickle=True,
-            ),
-            np.load(
-                f"{path_to.calibration_presets}/main_sentry_cam/camera_matrix.pkl",
-                allow_pickle=True,
-            ),
+        """Load pinhole calibration + undistortion map; defer camera open to load_threaded_cam()."""
+        intrinsics_dir = (
+            f"{path_to.calibration_presets}/{config.hardware.camera_intrinsics_path}"
         )
+        self.intrinsics: Intrinsics = Intrinsics(
+            np.load(f"{intrinsics_dir}/dist.pkl", allow_pickle=True),
+            np.load(f"{intrinsics_dir}/camera_matrix.pkl", allow_pickle=True),
+        )
+        # Per-pixel map that reprojects raw frames onto the pinhole model above.
+        # Built once by utils/camera_calibration/generate_pinhole_from_mrcal.py.
+        self._mapxy: np.ndarray = np.load(f"{intrinsics_dir}/mapxy.npy")
+        h, w = self._mapxy.shape[:2]
+        self._height = int(h)
+        self._width = int(w)
         self.index = index
         self.cap = None
 
@@ -94,26 +98,26 @@ class USBCamVideoStream(VideoStream):
             raise e
 
     def get_frame(self):
-        """Return the most recent frame from the USB camera."""
+        """Return the most recent frame, reprojected onto the pinhole model."""
         assert self.cap, ("Please run load_threaded_cam before getting frame")
 
-        timestamp = time.perf_counter()  
-        frame = self.cap.read()
+        timestamp = time.perf_counter()
+        raw = self.cap.read()
+        frame = mrcal.transform_image(raw, self._mapxy)
 
         return Frame(data=frame, timestamp=timestamp)
 
 
     def get_intrinsics(self) -> Intrinsics:
-        """Return camera intrinsics loaded from calibration presets."""
+        """Return pinhole camera intrinsics (matches the post-transform frame)."""
         return self.intrinsics
 
-    # TODO: actually implement these
     @property
     def height(self):
-        """Get height."""
-        return int(config.hardware.camera_height)
+        """Height of the pinhole-reprojected frame."""
+        return self._height
 
     @property
     def width(self):
-        """Get width."""
-        return int(config.hardware.camera_width)
+        """Width of the pinhole-reprojected frame."""
+        return self._width

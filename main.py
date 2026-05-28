@@ -1,10 +1,10 @@
 """Entry point for the AutoX application."""
-import time
-
-from src.main import main
+from src.engines.detection_test_engine import DetectionTestEngine
 
 if __name__ == "__main__":
-    # from src.engines.autoaim import AdvancedAutoAimEngine
-    # engine = AdvancedAutoAimEngine()
-    # engine.start()
-    main()
+    engine = DetectionTestEngine()
+    engine.start()
+    try:
+        engine.join()
+    except KeyboardInterrupt:
+        engine.stop()
