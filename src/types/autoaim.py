@@ -85,11 +85,15 @@ class RobotStateEstimate:
         value: 6-D state vector [x_c, y_c, vx, vy, theta, omega].
         timestamp: ``time.perf_counter()`` at the moment the estimate was computed.
         confidence: Effective sample ratio (N_eff / N) from the particle filter.
+        a_radius: Orbit radius for forward/back panels (cm). Set by estimation module.
+        b_radius: Orbit radius for left/right panels (cm). Set by estimation module.
     """
 
     value: np.ndarray
     timestamp: float
     confidence: float
+    a_radius: float = 23.5
+    b_radius: float = 23.5
 
 
 @dataclass

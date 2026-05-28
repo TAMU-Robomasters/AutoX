@@ -7,11 +7,7 @@ Ported from Armor-Panel-Classical/subsystems/communicate.py. Provides:
 
 import subprocess
 import time
-<<<<<<< HEAD
 from ctypes import Structure, c_float, c_uint8, c_uint16, sizeof
-=======
-from ctypes import Structure, c_float, c_uint8, sizeof
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
 from enum import Enum
 from typing import List, Optional, Tuple
 
@@ -30,9 +26,9 @@ from src.toolbox.globals import config
 class CVState(Enum):
     """State of the computer-vision pipeline as reported to embedded."""
 
-    PANEL_NOT_IN_VIEW: int = 0
-    PANEL_IN_VIEW: int = 1
-    FIRE: int = 2
+    NO_TARGET: int = 0        # no panel detected; embedded holds fire
+    SHOT_TIMING: int = 1      # spinning fast; embedded waits for alignment time
+    CONTINUOUS_FIRE: int = 2  # slow/no spin; embedded fires freely
 
 
 class JetsonMessage(Structure):
@@ -44,11 +40,7 @@ class JetsonMessage(Structure):
         ("messageType", c_uint8),
         ("pitch", c_float),
         ("yaw", c_float),
-<<<<<<< HEAD
         ("timeUntilNextFire", c_uint16),
-=======
-        ("timeUntilNextFire", c_uint8),
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
         ("cvState", c_uint8),
     ]
 
@@ -132,23 +124,15 @@ class EmbeddedCommunicator:
             return False
         assert time_until_next_fire >= 0, "time_until_next_fire must be non-negative"
         if time_until_next_fire > 255:
-<<<<<<< HEAD
             print(
                 f"Warning: time_until_next_fire {time_until_next_fire}"
             ) 
-=======
-            time_until_next_fire = 255
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
         message = JetsonMessage(
             magic=ord(magic),
             messageType=ord(message_type),
             pitch=float(pitch),
             yaw=float(yaw),
-<<<<<<< HEAD
             timeUntilNextFire=c_uint16(time_until_next_fire),
-=======
-            timeUntilNextFire=c_uint8(time_until_next_fire),
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
             cvState=c_uint8(cv_state).value,
         )
         try:

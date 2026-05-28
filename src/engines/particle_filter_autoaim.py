@@ -7,7 +7,8 @@ Full pipeline:
     4. Targeting           -> target_robot
     5. (execute logic)     -> transform panels to turret frame via embedded communicator
     6. ParticleFilterEstimation -> estimate
-    7. BallisticSolver     -> solution
+    7a. FullStateShotTimingModule     -> solution  (|ω| > omega_spin_threshold)
+    7b. FullStateContinuousFireModule -> solution  (|ω| ≤ omega_spin_threshold)
     8. (execute logic)     -> send solution to embedded
 """
 
@@ -17,7 +18,9 @@ from multiprocessing import Queue
 from typing import Optional
 
 from src.core.engine import Engine
-from src.subsystems.ballistic_solver import BallisticSolverModule
+from src.subsystems.full_state_shot_timing import FullStateShotTimingModule
+from src.subsystems.full_state_continuous_fire import FullStateContinuousFireModule
+from src.subsystems.embedded_communicator import CVState
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import EmbeddedCommunicator
@@ -34,11 +37,8 @@ from src.subsystems.video_streaming.video_stream import create_video_stream
 from src.types.autoaim import BallisticSolution
 from src.toolbox.timeout import Timeout
 from src.subsystems.video_streaming.video_stream import video_stream
-<<<<<<< HEAD
 from src.toolbox.globals import config
 
-=======
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
 
 import time
 
@@ -60,7 +60,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
         self.estimation = ParticleFilterEstimationModule(self.ctx)
-        self.ballistic = BallisticSolverModule(self.ctx)
+        self.shot_timing = FullStateShotTimingModule(self.ctx)
+        self.continuous_fire = FullStateContinuousFireModule(self.ctx)
 
         super().__init__(
             modules=[
@@ -68,7 +69,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
                 self.classification,
                 self.targeting,
                 self.estimation,
-                self.ballistic,
+                self.shot_timing,
+                self.continuous_fire,
             ],
             context_type=ParticleFilterAutoAimContext,
         )
@@ -77,7 +79,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         """Create child-process resources (communicator + particle filter)."""
         pf = _default_particle_filter()
         self.estimation.set_particle_filter(pf)
-        self.ballistic.set_particle_filter(pf)
+        self.shot_timing.set_particle_filter(pf)
+        self.continuous_fire.set_particle_filter(pf)
 
         self.target_timeout = Timeout(duration=RESET_TIMEOUT_MS / 1E3)  # 500 ms timeout for filter updates
 
@@ -86,7 +89,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self._last_pitch: float = float(np.deg2rad(-10))
         self._last_yaw: float = 0.0
         self.alignment_time_ms: int = 255  # Large default alignment time when no target is present
-        self.cv_state: int = 0  # Default CV state (0 = no panel in view)
+        self.cv_state: int = CVState.NO_TARGET.value
 
         if hasattr(video_stream, 'load_threaded_cam'):
             video_stream.load_threaded_cam()
@@ -96,8 +99,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         """Run one iteration of the particle-filter auto-aim pipeline."""
         self.ctx.start_loop_time = time.perf_counter()
 
-        self.alignment_time_ms = 255 
-        self.cv_state = 0
+        self.alignment_time_ms = 255
+        self.cv_state = CVState.NO_TARGET.value
         # ----------------------------------------------------------
         # 1. Detection: frame -> panels
         # ----------------------------------------------------------
@@ -127,10 +130,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             if self.ctx.standard and self.ctx.standard.panels:
                 self.ctx.target_robot = self.ctx.standard
 
-<<<<<<< HEAD
             print(f"before transformation: {self.ctx.target_robot.panels[0].position.flatten()}")
-=======
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
             # ----------------------------------------------------------
             # Transform panels to turret frame via embedded communicator
             # ----------------------------------------------------------
@@ -168,38 +168,35 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         if self.ctx.estimate is None:
             return
         print(f"Translational Velocity: {self.ctx.estimate.value[2]:.2f} cm/s, {self.ctx.estimate.value[3]:.2f} cm/s")
-<<<<<<< HEAD
         print("angular velocity:", self.ctx.estimate.value[4])
         self._queue.put_nowait(np.degrees(self.ctx.estimate.value[4]))
-=======
-        print("angular velocity:", self.ctx.estimate.value[5])
-        self._queue.put_nowait(self.ctx.estimate.value[5])
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
 
 
         # ----------------------------------------------------------
         # 6. Ballistic solver: estimate -> solution
+        #    |ω| > omega_spin_threshold → shot timing (wait for panel alignment)
+        #    |ω| ≤ omega_spin_threshold → continuous fire (fire freely)
         # ----------------------------------------------------------
-        self.ballistic.run()
+        omega = abs(float(self.ctx.estimate.value[5]))
+        if omega > config.ballistic.omega_spin_threshold:
+            self.shot_timing.run()
+            active_cv_state = CVState.SHOT_TIMING.value
+        else:
+            self.continuous_fire.run()
+            active_cv_state = CVState.CONTINUOUS_FIRE.value
 
         solution = self.ctx.solution
 
         if solution is None:
-            # print("Ballistic solver failed to produce a solution.")
             return
 
         # ----------------------------------------------------------
         # solution to embedded
         # ----------------------------------------------------------
-<<<<<<< HEAD
         self._last_pitch = solution.pitch
         self._last_yaw = solution.yaw + np.deg2rad(config.ballistic.yaw_offset)
-=======
-        self._last_pitch = 0
-        self._last_yaw = solution.yaw
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
         self.alignment_time_ms = solution.alignment_time_ms
-        self.cv_state = 1  # CV state indicating a valid target is present
+        self.cv_state = active_cv_state
     
 
     def update(self) -> None:

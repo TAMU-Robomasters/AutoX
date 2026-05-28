@@ -112,13 +112,10 @@
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
-<<<<<<< HEAD
                 z_offset: -20             # cm (vertical offset to target)
-                yaw_offset: -4           # degrees (horizontal offset to target)
-=======
-                z_offset: 0              # cm (vertical offset to target)
-
->>>>>>> b05fb63d15cbd2d73492709da538307a14fc31d1
+                yaw_offset: -4            # degrees (horizontal offset to target)
+                barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
+                omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
             communication:
                 timeout: 0.05
                 serial_baudrate: 115200
