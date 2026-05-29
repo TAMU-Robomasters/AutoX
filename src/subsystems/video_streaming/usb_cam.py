@@ -37,6 +37,9 @@ class BufferlesCvCapture:
         self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*'MJPG'))
         self.cap.set(cv.CAP_PROP_FRAME_WIDTH, config.hardware.camera_width)
         self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, config.hardware.camera_height)
+        # V4L2: 1 = manual, 3 = auto. Must go before CAP_PROP_EXPOSURE or the
+        # exposure write is silently ignored while auto-exposure is on.
+        self.cap.set(cv.CAP_PROP_AUTO_EXPOSURE, 1)
         self.cap.set(cv.CAP_PROP_EXPOSURE, config.hardware.camera_exposure)
         self.cap.set(cv.CAP_PROP_FPS, config.hardware.camera_fps)
 

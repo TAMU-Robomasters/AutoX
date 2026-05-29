@@ -222,9 +222,11 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 def _transform_panels_to_turret_frame(
     panels, camera_to_turret_matrix: np.ndarray, turret_yaw: float
 ) -> None:
-    """Transform panel positions from camera frame to turret/ballistic frame.
+    """Transform panel poses from camera frame to turret/ballistic frame.
 
-    Modifies panels in-place.
+    Modifies panels in-place. The classical detector already sets ``panel.yaw``
+    as the camera-relative panel yaw; here we just add the turret yaw to convert
+    it into the global/ballistic frame.
     """
     for panel in panels:
         if panel.position is None or panel.orientation is None:
@@ -233,5 +235,4 @@ def _transform_panels_to_turret_frame(
         pos_m = np.append(panel.position / METERS_TO_CM, 1.0)
         panel.position = (camera_to_turret_matrix @ pos_m)[:3] * METERS_TO_CM
 
-        R, _ = cv.Rodrigues(panel.orientation)
-        panel.yaw = (-np.arctan2(R[0, 2], R[2, 2]) + np.deg2rad(180)) + turret_yaw
+        panel.yaw = panel.yaw + turret_yaw

@@ -6,10 +6,11 @@ from src.subsystems.video_streaming.video_stream import video_stream
 
 from typing import List, Optional
 
+import cv2 as cv
 import numpy as np
 
 from src.core.module import Context, Module, real
-from src.subsystems.display import CYAN, display
+from src.subsystems.display import CYAN, GREEN, display, BLUE
 from src.subsystems.vision.classical_detector import (
     armor,
     frame_proccesing,
@@ -32,18 +33,32 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
         except Exception as e:
             print(f"Error in get_cord for panel: {e}")
             continue
-        # remove panels that are yawed too much
-        if abs(np.degrees(panel.rvec[2])) < 90:
+        # solvePnP may have failed silently; outer_corners is only set on success.
+        if panel.outer_corners is None or panel.rvec is None:
+            continue
+        # Camera-relative panel yaw: 0 = panel face square to camera,
+        # ±90° = edge-on. rvec is Rodrigues axis*angle, so its z-component is
+        # not itself the yaw angle — extract via the rotation matrix instead.
+        # The PF engine adds turret_yaw on top of this to get global yaw.
+        R, _ = cv.Rodrigues(panel.rvec)
+        yaw_rad = -np.arctan2(R[0, 2], R[2, 2]) + np.pi
+        yaw_rad = (yaw_rad + np.pi) % (2 * np.pi) - np.pi  # wrap to (-π, π]
+        if abs(np.degrees(yaw_rad)) < 90:
+            # Inner light-bar box (what we actually fed PnP) in cyan;
+            # reprojected outer panel boundary in green.
+            display.windows["main"].add_contour(panel.inner_corners, color=CYAN)
+            display.windows["main"].add_contour(panel.outer_corners, color=BLUE)
             panels.append(
                 ArmorPanel(
                     icon=panel.id if hasattr(panel, "id") else None,
                     position=panel.tvec if hasattr(panel, "tvec") else None,
                     orientation=panel.rvec if hasattr(panel, "rvec") else None,
                     bbx=BoundingBox.from_points(
-                        top_left=panel.corners[0][0],
-                        bottom_right=panel.corners[2][0],
+                        top_left=panel.outer_corners[0][0],
+                        bottom_right=panel.outer_corners[2][0],
                     ),
-                    contour=panel.corners,
+                    contour=panel.outer_corners,
+                    yaw=float(yaw_rad),
                 )
             )
     return panels
@@ -85,7 +100,7 @@ class ClassicalDetectorModule(Module[Context]):
             panels = None
             return panels
 
+        # _process_pairs handles inner+outer contour drawing inline so we keep
+        # the Panel object's inner_corners in scope. No further display calls needed.
         panels = _process_pairs(pairs, frame)
-        for panel in panels:
-            display.windows["main"].add_contour(panel.contour, color=CYAN)
         return panels

@@ -23,8 +23,16 @@ class Lights:  # noqa
 
 # TODO: consolidate this type with the other panel type
 class Panel:  # noqa
-    def __init__(self, corners, center, area):
+    def __init__(self, corners, inner_corners, center, area):
+        # Extrapolated outer corners (approximate, rely on armor_height_ratio).
+        # Used by icon_detection.icon_detection to warp the full panel face.
         self.corners = corners
+        # Light-bar inner-edge corners — the actual observed pixel locations
+        # we feed to solvePnP. These are NOT extrapolated.
+        self.inner_corners = inner_corners
+        # Reprojected outer panel corners. Filled by pnp.get_cord after a
+        # successful solve; this is the canonical outer-panel pixel boundary.
+        self.outer_corners = None
         self.center = center
         self.tvec = None
         self.rvec = None
@@ -243,8 +251,48 @@ def armour_corners(pair):
         ),
     ]
 
+    # Inner light-bar corners — the actual pixel corners of the light-bar inner
+    # edges. These go to PnP. Same shape as the outer extrapolation above but
+    # without the armor_height_ratio multiplier on the long-axis extent.
+    inner_top_left = [
+        int(
+            left.cx
+            + left.w * 0.5
+            - left.h * 0.5 * math.cos(math.radians(left.angle))
+        ),
+        int(left.cy - left.h * 0.5 * math.sin(math.radians(left.angle))),
+    ]
+    inner_top_right = [
+        int(
+            right.cx
+            - right.w * 0.5
+            - right.h * 0.5 * math.cos(math.radians(right.angle))
+        ),
+        int(right.cy - right.h * 0.5 * math.sin(math.radians(right.angle))),
+    ]
+    inner_bottom_left = [
+        int(
+            left.cx
+            + left.w * 0.5
+            + left.h * 0.5 * math.cos(math.radians(left.angle))
+        ),
+        int(left.cy + left.h * 0.5 * math.sin(math.radians(left.angle))),
+    ]
+    inner_bottom_right = [
+        int(
+            right.cx
+            - right.w * 0.5
+            + right.h * 0.5 * math.cos(math.radians(right.angle))
+        ),
+        int(right.cy + right.h * 0.5 * math.sin(math.radians(right.angle))),
+    ]
+
     points = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
     points = points.reshape((-1, 1, 2))
+    inner_points = np.array(
+        [inner_top_left, inner_top_right, inner_bottom_right, inner_bottom_left],
+        dtype=np.int32,
+    ).reshape((-1, 1, 2))
 
     panel_center = np.array(
         [
@@ -254,6 +302,6 @@ def armour_corners(pair):
         dtype=np.int32,
     )
     area = cv.contourArea(points)  # find area
-    panel = Panel(points, panel_center, area)
+    panel = Panel(points, inner_points, panel_center, area)
 
     return panel
