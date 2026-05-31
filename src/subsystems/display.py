@@ -43,6 +43,8 @@ class Display:
     def show_windows(self):
         """Show the image in each window to the screen."""
         for name in self.windows:
+            cv.namedWindow(name, cv.WINDOW_NORMAL)
+            cv.resizeWindow(name, 1600, 900)
             cv.imshow(name, self.windows[name].img)
             cv.waitKey(1)
 

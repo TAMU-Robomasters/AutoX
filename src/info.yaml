@@ -173,7 +173,7 @@
             hardware:
                 camera: usb_cam
                 camera_index: 0
-                camera_exposure: 20
+                camera_exposure: 35
                 camera_fps: 60
                 camera_width: 1920 # 1280
                 camera_height: 1080 # 720
