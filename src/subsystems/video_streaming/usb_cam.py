@@ -162,8 +162,10 @@ class USBCamVideoStream(VideoStream):
         Returns:
             (N, 2) array of pixel coordinates in the pinhole image.
         """
-        pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+        pts = np.ascontiguousarray(points, dtype=np.float64).reshape(-1, 2)
         rays = mrcal.unproject(pts, self._splined_lensmodel, self._splined_intrinsics)
+        # mrcal requires C-contiguous inputs; unproject's output may not be.
+        rays = np.ascontiguousarray(rays)
         return mrcal.project(rays, "LENSMODEL_PINHOLE", self._pinhole_intrinsics)
 
     def camera_points_to_raw_pixels(self, points_cam: np.ndarray) -> np.ndarray:
@@ -179,7 +181,7 @@ class USBCamVideoStream(VideoStream):
         Returns:
             (N, 2) pixel coordinates in the raw frame.
         """
-        pts = np.asarray(points_cam, dtype=np.float64).reshape(-1, 3)
+        pts = np.ascontiguousarray(points_cam, dtype=np.float64).reshape(-1, 3)
         return mrcal.project(pts, self._splined_lensmodel, self._splined_intrinsics)
 
     def get_intrinsics(self) -> Intrinsics:
