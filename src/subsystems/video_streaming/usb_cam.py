@@ -76,7 +76,20 @@ class USBCamVideoStream(VideoStream):
     """
 
     def __init__(self, index: int) -> None:
-        """Load pinhole calibration + undistortion map; defer camera open to load_threaded_cam()."""
+        """Load pinhole calibration; defer camera open to load_threaded_cam().
+
+        Two lens-correction modes (config.hardware.lens_correction_mode):
+          "warp"      — load the precomputed mapxy and remap every frame onto the
+                        pinhole model in get_frame().
+          "unproject" — leave frames raw; load the splined cameramodel so detected
+                        pixel points can be undistorted on demand (see
+                        distorted_to_pinhole). Cheaper: only PnP corners are
+                        transformed, not the whole image.
+        Both modes share the same pinhole K (camera_matrix.pkl) + zero distortion.
+        """
+        # camera_intrinsics_path is the camera's intrinsics dir; the generate
+        # script drops every artifact (camera_matrix.pkl, dist.pkl, mapxy.npy,
+        # splined.cameramodel, ...) directly in it — flat, no subdir.
         intrinsics_dir = (
             f"{path_to.calibration_presets}/{config.hardware.camera_intrinsics_path}"
         )
@@ -84,12 +97,30 @@ class USBCamVideoStream(VideoStream):
             np.load(f"{intrinsics_dir}/dist.pkl", allow_pickle=True),
             np.load(f"{intrinsics_dir}/camera_matrix.pkl", allow_pickle=True),
         )
-        # Per-pixel map that reprojects raw frames onto the pinhole model above.
-        # Built once by utils/camera_calibration/generate_pinhole_from_mrcal.py.
-        self._mapxy: np.ndarray = np.load(f"{intrinsics_dir}/mapxy.npy")
-        h, w = self._mapxy.shape[:2]
-        self._height = int(h)
-        self._width = int(w)
+        self._mode = config.hardware.lens_correction_mode
+
+        if self._mode == "unproject":
+            # Detect on the raw frame; transform only the points fed to PnP.
+            self._splined = mrcal.cameramodel(f"{intrinsics_dir}/splined.cameramodel")
+            self._splined_lensmodel, self._splined_intrinsics = (
+                self._splined.intrinsics()
+            )
+            k = self.intrinsics.camera_matrix
+            # mrcal pinhole intrinsics_data layout: [fx, fy, cx, cy].
+            self._pinhole_intrinsics = np.array(
+                [k[0, 0], k[1, 1], k[0, 2], k[1, 2]], dtype=np.float64
+            )
+            # Raw frames keep the native camera resolution.
+            self._width = int(config.hardware.camera_width)
+            self._height = int(config.hardware.camera_height)
+        else:
+            # Per-pixel map that reprojects raw frames onto the pinhole model.
+            # Built by utils/camera_calibration/generate_pinhole_from_mrcal.py.
+            self._mapxy: np.ndarray = np.load(f"{intrinsics_dir}/mapxy.npy")
+            h, w = self._mapxy.shape[:2]
+            self._height = int(h)
+            self._width = int(w)
+
         self.index = index
         self.cap = None
 
@@ -101,15 +132,55 @@ class USBCamVideoStream(VideoStream):
             raise e
 
     def get_frame(self):
-        """Return the most recent frame, reprojected onto the pinhole model."""
+        """Return the most recent frame.
+
+        In "warp" mode the raw frame is remapped onto the pinhole model. In
+        "unproject" mode the raw (distorted) frame is returned untouched —
+        detection runs on it and only the PnP points are later undistorted.
+        """
         assert self.cap, ("Please run load_threaded_cam before getting frame")
 
         timestamp = time.perf_counter()
         raw = self.cap.read()
-        frame = mrcal.transform_image(raw, self._mapxy)
+        if self._mode == "unproject":
+            frame = raw
+        else:
+            frame = mrcal.transform_image(raw, self._mapxy)
 
         return Frame(data=frame, timestamp=timestamp)
 
+    def distorted_to_pinhole(self, points: np.ndarray) -> np.ndarray:
+        """Map raw-image pixel observations to equivalent pinhole pixels.
+
+        Unprojects the points through the splined lens model and reprojects
+        them through the pinhole model, so OpenCV PnP can treat the result as a
+        distortion-free pinhole observation. Only valid in "unproject" mode.
+
+        Args:
+            points: (N, 2) array of pixel coordinates in the raw frame.
+
+        Returns:
+            (N, 2) array of pixel coordinates in the pinhole image.
+        """
+        pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+        rays = mrcal.unproject(pts, self._splined_lensmodel, self._splined_intrinsics)
+        return mrcal.project(rays, "LENSMODEL_PINHOLE", self._pinhole_intrinsics)
+
+    def camera_points_to_raw_pixels(self, points_cam: np.ndarray) -> np.ndarray:
+        """Project camera-frame 3D points onto the raw distorted image.
+
+        Used to draw PnP-reprojected overlays (e.g. the outer panel box) on the
+        raw frame shown in "unproject" mode, so they line up with the
+        distorted image. Only valid in "unproject" mode.
+
+        Args:
+            points_cam: (N, 3) points in the OpenCV camera frame.
+
+        Returns:
+            (N, 2) pixel coordinates in the raw frame.
+        """
+        pts = np.asarray(points_cam, dtype=np.float64).reshape(-1, 3)
+        return mrcal.project(pts, self._splined_lensmodel, self._splined_intrinsics)
 
     def get_intrinsics(self) -> Intrinsics:
         """Return pinhole camera intrinsics (matches the post-transform frame)."""

@@ -1,0 +1,13 @@
+{
+    'lensmodel':  'LENSMODEL_PINHOLE',
+
+    # intrinsics are fx,fy,cx,cy,distortion0,distortion1,....
+    'intrinsics': [ 1780.023681, 1784.265139, 629.9691198, 336.4825157,],
+
+    # extrinsics are rt_fromref
+    'extrinsics': [ 0, 0, 0, 0, 0, 0,],
+
+    'imagersize': [ 1280, 720,],
+
+
+}

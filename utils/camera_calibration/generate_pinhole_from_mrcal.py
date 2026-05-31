@@ -18,23 +18,33 @@ only controls how the focal length / output dims are chosen:
     corners                        — maximize FOV; output dims grow to contain
                                     all four source corners. Larger frame.
 
-Each run writes to its own subdirectory:
-    <cameramodel_parent>/pinhole_<fit_tag>_<WxH>/
-        camera_matrix.pkl  3x3 pinhole K, pickled numpy array
-        dist.pkl           zeros, shape (1, 5)
-        mapxy.npy          (H_out, W_out, 2) float32 map for mrcal.transform_image
+Workflow: make a folder under assets/intrinsics/, drop the splined
+``.cameramodel`` in it, and run this script with --cameramodel pointing at it.
+Every artifact is written flat into that same folder (overwriting any previous
+run):
+    <camera_dir>/
+        <source>.cameramodel  the splined model you provided
+        splined.cameramodel   standardized copy of it
+                              (used by "unproject" lens_correction_mode)
+        camera_matrix.pkl     3x3 pinhole K, pickled numpy array
+        dist.pkl              zeros, shape (1, 5)
+        mapxy.npy             (H_out, W_out, 2) float32 map for mrcal.transform_image
+                              (used by "warp" lens_correction_mode)
+        pinhole.cameramodel   pinhole model (for projection-diff comparisons)
 
-That layout means trying a different camera model or fit mode never overwrites
-a previous run. Point info.yaml's hardware.camera_intrinsics_path at the
-specific subdir to use it.
+Point info.yaml's hardware.camera_intrinsics_path at <camera_dir>. Both
+lens_correction_mode values are served from it, so switching modes only means
+editing lens_correction_mode — never the path. "warp" reads mapxy.npy;
+"unproject" reads splined.cameramodel.
 
 After the artifacts are written the script offers an optional pinhole-recal
-sanity check: apply the remap to a set of calibration images, run mrgingham +
-mrcal-calibrate-cameras on the transformed images as a LENSMODEL_PINHOLE solve,
-and compare the recalibrated K against the script-computed K. They should
-match closely if the splined calibration is internally consistent. The
-resulting .cameramodel is kept under ``utils/camera_calibration/pinhole_recalibrations/``
-for inspection; it is not used by the runtime pipeline.
+sanity check: apply the remap to a set of calibration images, then recalibrate
+a pinhole model from the transformed images two independent ways (mrcal
+LENSMODEL_PINHOLE and OpenCV cv.calibrateCamera) and compare both against the
+script-computed K. They should match closely if the splined calibration is
+internally consistent. The resulting .cameramodels are kept under
+``utils/camera_calibration/pinhole_recalibrations/`` for inspection; they are
+not used by the runtime pipeline.
 
 Install mrcal + mrgingham (not on PyPI, system packages only):
     sudo apt install python3-mrcal mrgingham
@@ -42,10 +52,10 @@ The uv-managed venv needs system site-packages access to see mrcal
 (create with ``uv venv --python /usr/bin/python3.10 --system-site-packages``).
 
 Usage:
-    python utils/camera_calibration/generate_pinhole_from_mrcal.py
-    python utils/camera_calibration/generate_pinhole_from_mrcal.py --fit corners
     python utils/camera_calibration/generate_pinhole_from_mrcal.py \
-        --cameramodel assets/intrinsics/some_other_cam/camera-0.cameramodel
+        --cameramodel assets/intrinsics/my_cam/camera-0.cameramodel
+    python utils/camera_calibration/generate_pinhole_from_mrcal.py \
+        --cameramodel assets/intrinsics/my_cam/camera-0.cameramodel --fit corners
 """
 import argparse
 import pickle
@@ -74,10 +84,13 @@ _FIT_TAG = {
 }
 
 
-def generate(cameramodel_path: Path, fit: str, force: bool) -> Path:
-    """Build the pinhole model + remap and write outputs to a per-variant subdir.
+def generate(cameramodel_path: Path, fit: str) -> Path:
+    """Build the pinhole model + remap and write outputs alongside the source model.
 
-    Returns the output directory path.
+    Writes every artifact directly into the camera directory that holds the
+    source ``.cameramodel`` (``cameramodel_path.parent``), overwriting any
+    previous run. That directory is exactly what camera_intrinsics_path points
+    at — no subdir. Returns the output directory path.
     """
     model_splined = mrcal.cameramodel(str(cameramodel_path))
     model_pinhole = mrcal.pinhole_model_for_reprojection(model_splined, fit=fit)
@@ -86,12 +99,7 @@ def generate(cameramodel_path: Path, fit: str, force: bool) -> Path:
     )
 
     h, w = mapxy.shape[:2]
-    out_dir = cameramodel_path.parent / f"pinhole_{_FIT_TAG[fit]}_{w}x{h}"
-    if out_dir.exists() and not force:
-        raise SystemExit(
-            f"Output directory already exists: {out_dir}\n"
-            f"Re-run with --force to overwrite, or pick a different --fit."
-        )
+    out_dir = cameramodel_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
     _, pinhole_intrinsics = model_pinhole.intrinsics()
@@ -109,6 +117,11 @@ def generate(cameramodel_path: Path, fit: str, force: bool) -> Path:
     # Also write the pinhole model as a .cameramodel so projection-diff can
     # compare it against the recalibrated pinhole (mrcal CLI needs a file).
     model_pinhole.write(str(out_dir / "pinhole.cameramodel"))
+    # Standardize the source model's name so "unproject" mode can always load
+    # <dir>/splined.cameramodel. Skip if the source already is that file.
+    splined_dst = out_dir / "splined.cameramodel"
+    if cameramodel_path.resolve() != splined_dst.resolve():
+        shutil.copy(cameramodel_path, splined_dst)
 
     print(
         f"Wrote pinhole intrinsics ({w}x{h}, fit={fit}) to {out_dir}\n"
@@ -125,6 +138,65 @@ def _prompt(message: str, default: Optional[str] = None) -> str:
     return value or (default or "")
 
 
+def _opencv_pinhole_calibrate(image_paths, grid_n, spacing, frame_size):
+    """Calibrate a zero-distortion pinhole model on the images via cv.calibrateCamera.
+
+    Detects a ``grid_n`` x ``grid_n`` chessboard in each image (mrgingham only
+    handles symmetric NxN grids, so the same N is used for both axes) and runs
+    cv.calibrateCamera constrained to a pure pinhole model — all distortion
+    coefficients fixed at zero — so the resulting K is directly comparable to
+    the mrcal LENSMODEL_PINHOLE solve.
+
+    Args:
+        image_paths: transformed (pinhole) image paths to detect boards in.
+        grid_n: number of inner chessboard corners per side.
+        spacing: chessboard square size (meters); only affects extrinsics, not K.
+        frame_size: (width, height) of the transformed images.
+
+    Returns:
+        (fx, fy, cx, cy) tuple, or None if too few boards were detected.
+    """
+    criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    objp = np.zeros((grid_n * grid_n, 3), np.float32)
+    objp[:, :2] = np.mgrid[0:grid_n, 0:grid_n].T.reshape(-1, 2) * spacing
+
+    objpoints, imgpoints = [], []
+    for p in tqdm(image_paths, desc="opencv detect", unit="img"):
+        img = cv.imread(str(p))
+        if img is None:
+            continue
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        found, corners = cv.findChessboardCorners(gray, (grid_n, grid_n), None)
+        if not found:
+            continue
+        corners = cv.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+        objpoints.append(objp)
+        imgpoints.append(corners)
+
+    if len(objpoints) < 4:
+        print(
+            f"OpenCV detected only {len(objpoints)} usable boards "
+            f"(need >= 4); skipping cv.calibrateCamera."
+        )
+        return None
+
+    # Force a pure pinhole fit (zero + fixed distortion) to mirror mrcal's
+    # LENSMODEL_PINHOLE solve, so the K's compare apples-to-apples.
+    flags = (
+        cv.CALIB_ZERO_TANGENT_DIST
+        | cv.CALIB_FIX_K1 | cv.CALIB_FIX_K2 | cv.CALIB_FIX_K3
+    )
+    dist0 = np.zeros((5, 1), np.float64)
+    rms, k, _dist, _rvecs, _tvecs = cv.calibrateCamera(
+        objpoints, imgpoints, frame_size, None, dist0, flags=flags
+    )
+    print(
+        f"cv.calibrateCamera RMS reprojection error: {rms:.4f} px "
+        f"({len(objpoints)} boards used)"
+    )
+    return float(k[0, 0]), float(k[1, 1]), float(k[0, 2]), float(k[1, 2])
+
+
 def offer_uncertainty_check(
     cameramodel_path: Path, fit: str, out_dir: Path
 ) -> None:
@@ -135,10 +207,15 @@ def offer_uncertainty_check(
            remap, into a temp directory
         2. running mrgingham on those transformed images to detect corners
         3. running mrcal-calibrate-cameras --lensmodel LENSMODEL_PINHOLE
-        4. comparing the recalibrated K to the script-computed K
-        5. opening mrcal-show-projection-uncertainty on the new model
+        4. running cv.calibrateCamera (zero-distortion) on the same images
+        5. comparing the script-computed K against both recalibrations in one
+           table (script | mrcal recal | opencv)
+        6. mrcal-show-projection-uncertainty on the mrcal recal, then
+           mrcal-show-projection-diff of the script pinhole against both the
+           mrcal recal and the OpenCV model
 
-    The recalibrated .cameramodel is kept; the transformed images are deleted.
+    The two recalibrated .cameramodels are kept; the transformed images are
+    deleted.
     """
     answer = input(
         "\nRecalibrate a pinhole model from transformed images "
@@ -196,11 +273,11 @@ def offer_uncertainty_check(
     focal_init = int(round((float(K_script[0, 0]) + float(K_script[1, 1])) / 2))
 
     RECAL_DIR.mkdir(parents=True, exist_ok=True)
-    output_name = (
-        f"{cameramodel_path.parent.name}_pinhole_"
-        f"{_FIT_TAG[fit]}_{W_out}x{H_out}.cameramodel"
+    base_name = (
+        f"{cameramodel_path.parent.name}_pinhole_{_FIT_TAG[fit]}_{W_out}x{H_out}"
     )
-    output_cameramodel = RECAL_DIR / output_name
+    output_cameramodel = RECAL_DIR / f"{base_name}.cameramodel"
+    opencv_cameramodel = RECAL_DIR / f"{base_name}_opencv.cameramodel"
 
     with tempfile.TemporaryDirectory(prefix="mrcal_xform_") as tmp:
         tmp_dir = Path(tmp)
@@ -270,7 +347,13 @@ def offer_uncertainty_check(
             return
         shutil.copy(produced[0], output_cameramodel)
 
-    print(f"\nRecalibrated pinhole model:\n  {output_cameramodel}")
+        # Independent OpenCV pinhole calibration on the same transformed images.
+        print("\nRunning cv.calibrateCamera on the transformed images ...")
+        opencv_k = _opencv_pinhole_calibrate(
+            transformed_images, object_width_n, object_spacing, (W_out, H_out)
+        )
+
+    print(f"\nRecalibrated pinhole model (mrcal):\n  {output_cameramodel}")
 
     m_recal = mrcal.cameramodel(str(output_cameramodel))
     _, p_recal = m_recal.intrinsics()
@@ -278,27 +361,67 @@ def offer_uncertainty_check(
     fx_s, fy_s = float(K_script[0, 0]), float(K_script[1, 1])
     cx_s, cy_s = float(K_script[0, 2]), float(K_script[1, 2])
 
-    print("\nPinhole intrinsics comparison "
-          "(script = pinhole_model_for_reprojection; recal = LENSMODEL_PINHOLE solve):")
-    header = f"  {'param':<6}{'script':>16}{'recal':>16}{'diff':>14}"
+    # Persist the OpenCV K as an mrcal pinhole cameramodel so projection-diff
+    # can compare it against the script-computed pinhole.
+    opencv_vals = None
+    if opencv_k is not None:
+        fx_o, fy_o, cx_o, cy_o = opencv_k
+        opencv_vals = {"fx": fx_o, "fy": fy_o, "cx": cx_o, "cy": cy_o}
+        m_opencv = mrcal.cameramodel(
+            intrinsics=("LENSMODEL_PINHOLE",
+                        np.array([fx_o, fy_o, cx_o, cy_o], dtype=float)),
+            imagersize=(W_out, H_out),
+        )
+        m_opencv.write(str(opencv_cameramodel))
+        print(f"OpenCV pinhole model:\n  {opencv_cameramodel}")
+
+    print(
+        "\nPinhole intrinsics comparison "
+        "(script = pinhole_model_for_reprojection; "
+        "recal = mrcal LENSMODEL_PINHOLE; opencv = cv.calibrateCamera):"
+    )
+    header = (
+        f"  {'param':<6}{'script':>14}{'recal':>14}{'Δrecal':>12}"
+        f"{'opencv':>14}{'Δopencv':>12}"
+    )
     print(header)
     print("  " + "-" * (len(header) - 2))
-    for label, s, r_ in (("fx", fx_s, fx_r), ("fy", fy_s, fy_r),
-                        ("cx", cx_s, cx_r), ("cy", cy_s, cy_r)):
-        print(f"  {label:<6}{s:>16.4f}{r_:>16.4f}{r_ - s:>+14.4f}")
+    recal_vals = {"fx": fx_r, "fy": fy_r, "cx": cx_r, "cy": cy_r}
+    script_vals = {"fx": fx_s, "fy": fy_s, "cx": cx_s, "cy": cy_s}
+    for label in ("fx", "fy", "cx", "cy"):
+        s = script_vals[label]
+        r_ = recal_vals[label]
+        row = f"  {label:<6}{s:>14.4f}{r_:>14.4f}{r_ - s:>+12.4f}"
+        if opencv_vals is not None:
+            o = opencv_vals[label]
+            row += f"{o:>14.4f}{o - s:>+12.4f}"
+        else:
+            row += f"{'n/a':>14}{'n/a':>12}"
+        print(row)
 
-    print("\nLaunching mrcal-show-projection-uncertainty ...")
+    print("\nLaunching mrcal-show-projection-uncertainty (mrcal recal) ...")
     subprocess.run(["mrcal-show-projection-uncertainty", str(output_cameramodel)])
 
     print(
         "\nLaunching mrcal-show-projection-diff "
-        "(script-computed pinhole vs. recalibrated pinhole) ..."
+        "(script-computed pinhole vs. mrcal recalibrated pinhole) ..."
     )
     subprocess.run([
         "mrcal-show-projection-diff",
         str(out_dir / "pinhole.cameramodel"),
         str(output_cameramodel),
     ])
+
+    if opencv_vals is not None:
+        print(
+            "\nLaunching mrcal-show-projection-diff "
+            "(script-computed pinhole vs. OpenCV cv.calibrateCamera pinhole) ..."
+        )
+        subprocess.run([
+            "mrcal-show-projection-diff",
+            str(out_dir / "pinhole.cameramodel"),
+            str(opencv_cameramodel),
+        ])
 
 
 def main() -> None:
@@ -316,11 +439,6 @@ def main() -> None:
         choices=sorted(_FIT_TAG.keys()),
         help="Pinhole focal-length fit mode (see module docstring).",
     )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite an existing output subdirectory.",
-    )
     args = parser.parse_args()
 
     cameramodel_path = args.cameramodel.resolve()
@@ -329,13 +447,17 @@ def main() -> None:
             f"--cameramodel must point to a .cameramodel file, got: {cameramodel_path}"
         )
 
-    out_dir = generate(cameramodel_path, args.fit, args.force)
+    out_dir = generate(cameramodel_path, args.fit)
 
     if out_dir.is_relative_to(INTRINSICS_ROOT):
+        # camera_intrinsics_path is exactly this folder (flat, no subdir).
         relative = out_dir.relative_to(INTRINSICS_ROOT)
         print(
             f"\nTo use this in info.yaml, set:\n"
-            f'    camera_intrinsics_path: "{relative.as_posix()}"'
+            f'    camera_intrinsics_path: "{relative.as_posix()}"\n'
+            f"    lens_correction_mode: warp        # remap whole frame to pinhole\n"
+            f"    lens_correction_mode: unproject   # detect on raw, undistort PnP points\n"
+            f"  (choose one lens_correction_mode; both are supported by this dir.)"
         )
     else:
         print(
