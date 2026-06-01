@@ -116,7 +116,7 @@
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
-                z_offset: -20             # cm (vertical offset to target)
+                z_offset: -15            # cm (vertical offset to target)
                 yaw_offset: -4            # degrees (horizontal offset to target)
                 barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
                 omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire

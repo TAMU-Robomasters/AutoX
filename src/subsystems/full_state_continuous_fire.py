@@ -225,8 +225,8 @@ class FullStateContinuousFireModule(Module[ParticleFilterAutoAimContext]):
 
         # Advance state to firing time (processing delay + feeder actuation lag)
         time_since_estimate = time.perf_counter() - estimate.timestamp
-        feeder_delay = 0.15
-        pred = self._pf.prediction(time_since_estimate + feeder_delay)
+    
+        pred = self._pf.prediction(time_since_estimate)
 
         p_t = np.array([pred[0] / METERS_TO_CM, pred[1] / METERS_TO_CM, self._z_offset])
         v_t = np.array([pred[2] / METERS_TO_CM, pred[3] / METERS_TO_CM, 0.0])

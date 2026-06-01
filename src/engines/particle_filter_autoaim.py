@@ -46,6 +46,8 @@ RESET_TIMEOUT_MS = 500
 METERS_TO_CM = 100
 
 
+#FIXME:  cap.read from the video stream is not blocking until a new frame arrives meaning we are running stuff on the same frame multiple times 
+
 class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
     """Auto-aim engine using a particle filter for state estimation."""
 
@@ -168,8 +170,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         if self.ctx.estimate is None:
             return
         print(f"Translational Velocity: {self.ctx.estimate.value[2]:.2f} cm/s, {self.ctx.estimate.value[3]:.2f} cm/s")
-        print("angular velocity:", self.ctx.estimate.value[4])
-        self._queue.put_nowait(np.degrees(self.ctx.estimate.value[4]))
+        print("angular velocity:", self.ctx.estimate.value[5])
+        self._queue.put_nowait(np.degrees(self.ctx.estimate.value[5]))
 
 
         # ----------------------------------------------------------
