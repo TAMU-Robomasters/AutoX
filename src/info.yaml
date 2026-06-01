@@ -67,10 +67,12 @@
                 flip_camera: false
                 usb_cam_exposure: null  # set to an int (e.g. 300) to enable manual exposure; null = leave auto on
                                         # units are 100µs (e.g. 300 = 30ms shutter)
-                lens_correction_mode: warp  # how the splined lens model is applied (usb_cam only):
+                lens_correction_mode: warp  # how lens distortion is handled (usb_cam only):
                                             #   "warp"      = remap the whole frame to a pinhole image (mapxy.npy)
                                             #   "unproject" = detect on the raw frame; undistort only the PnP points
                                             #                 (needs splined.cameramodel in the intrinsics dir)
+                                            #   "normal"    = detect on the raw frame; feed the OPENCV12 distortion
+                                            #                 straight into cv.solvePnP (needs opencv12.cameramodel)
             model:
                 which_model: yolo_v8 
                 hardware_acceleration: 'cpu' # one of: [ 'cpu', "gpu", "tensor_rt" ]
@@ -181,8 +183,8 @@
                 camera_fps: 90
                 camera_width: 1280 # 1280
                 camera_height: 720 # 720
-                camera_intrinsics_path: "mrcal_sentry_spline_1280"
-                lens_correction_mode: unproject        
+                camera_intrinsics_path: "mrcal_1280x720"
+                lens_correction_mode: normal        
     
         V8:
             model:
