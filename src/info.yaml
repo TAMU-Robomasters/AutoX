@@ -118,8 +118,8 @@
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
-                z_offset: -15            # cm (vertical offset to target)
-                yaw_offset: -4            # degrees (horizontal offset to target)
+                z_offset: -18           # cm (vertical offset to target)
+                yaw_offset: -3           # degrees (horizontal offset to target)
                 barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
                 omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
             communication:
@@ -184,7 +184,7 @@
                 camera_width: 1280 # 1280
                 camera_height: 720 # 720
                 camera_intrinsics_path: "mrcal_1280x720"
-                lens_correction_mode: normal        
+                lens_correction_mode: unproject        
     
         V8:
             model:
