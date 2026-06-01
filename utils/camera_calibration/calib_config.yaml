@@ -1,0 +1,27 @@
+# Default calibration config for mrcal_calibrate_camera.py.
+#
+# Edit these to match your chessboard + camera. When you run the script it will
+# ask whether to use this file as-is (the common case) or prompt you for each
+# value (using these as the shown defaults).
+#
+# The board MUST be a symmetric NxN grid of *inner* corners — mrgingham only
+# detects square grids, so object_grid_n is used for both axes.
+
+# Which files in the images directory to use.
+image_glob: "*.PNG"
+
+# Chessboard geometry.
+object_grid_n: 10        # inner corners per side (NxN)
+object_spacing: 0.06356     # metres between adjacent corners
+
+# Initial focal-length estimate (pixels) seeded into the solver.
+focal: 1700
+
+# High-fidelity lens model used for the "warp" / "unproject" runtime modes.
+# Bump Nx/Ny for more spline knots (more flexible, needs more boards); fov_x_deg
+# should comfortably exceed the camera's horizontal field of view.
+splined_lensmodel: "LENSMODEL_SPLINED_STEREOGRAPHIC_order=3_Nx=30_Ny=20_fov_x_deg=60"
+
+# Pinhole reprojection fit for the warp/unproject artifacts:
+#   centers-horizontal | centers-vertical | corners   (see script docstring)
+fit: centers-horizontal
