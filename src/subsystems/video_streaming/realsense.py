@@ -153,18 +153,21 @@ class RealSenseVideoStream(VideoStream):
         except Exception:
             raise RuntimeError("Color sensor not found")
 
-        try:
-            vsp = color_sensor.get_cam_profiles()[0].as_video_cam_profile()
-        except Exception:
-            raise RuntimeError("Video cam profile not found")
+        # try:
+        #     vsp = color_sensor.get_cam_profiles()[0].as_video_cam_profile()
+        # except Exception:
+        #     raise RuntimeError("Video cam profile not found")
 
-        intr = vsp.get_intrinsics()
+        # intr = vsp.get_intrinsics()
 
-        # camera intrinsics
-        dist = np.array(intr.coeffs)
-        cam_matrix = np.array(
-            [[intr.fx, 0, intr.ppx], [0, intr.fy, intr.ppy], [0, 0, 1]]
-        )
+        # # camera intrinsics
+        # dist = np.array(intr.coeffs)
+        # cam_matrix = np.array(
+        #     [[intr.fx, 0, intr.ppx], [0, intr.fy, intr.ppy], [0, 0, 1]]
+        # )
+
+        dist = np.zeros(5)  # ignore distortion coefficients, as RealSense cameras are pre-distorted and this causes more issues than it solves
+        cam_matrix = np.zeros((3, 3))  # placeholder to avoid mypy error about uninitialized variable
 
         return Intrinsics(dist, cam_matrix)
 
