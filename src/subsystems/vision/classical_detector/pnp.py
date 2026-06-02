@@ -89,7 +89,15 @@ def get_cord(panel):
         )
 
         if success:
-            panel.tvec = np.array([tvec[0], tvec[2], -tvec[1]])
+            # Axis relabel (OpenCV x-right/y-down/z-fwd -> right/fwd/up) as a
+            # flat (3,) vector. solvePnP's tvec is (3, 1); index the scalars so
+            # downstream (ArmorPanel.position, pf.py) sees a 3-vector, not (3, 1)
+            # — otherwise position[0] is a 1-element array. This matters when the
+            # embedded transform (which used to flatten it) is skipped, e.g. when
+            # no serial/embedded board is connected.
+            panel.tvec = np.array(
+                [tvec[0, 0], tvec[2, 0], -tvec[1, 0]], dtype=np.float64
+            )
             panel.rvec = rvec
             # Reproject the full outer-panel object points through the pose we
             # just solved for, to get the canonical outer-panel pixel boundary

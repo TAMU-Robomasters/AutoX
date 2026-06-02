@@ -7,18 +7,26 @@ from time import perf_counter, time
 from typing import List, Optional, Tuple
 
 import numpy as np
-import pyrealsense2 as rs
 from cfgv import Array
 
 from src.subsystems.video_streaming.video_stream import Intrinsics, VideoStream
 from src.toolbox.globals import config, print
+from src.types.autoaim import Frame
 
 videostream = config.videostream
 aiming = config.aiming
 
 MICRO_SECONDS_TO_MILLISECONDS = 1000
 
-align = rs.align(rs.stream.color)
+# IMPORTANT: pyrealsense2 is NOT imported at module scope. On Jetson the
+# CUDA-enabled librealsense .so initializes a CUDA context at import time, and a
+# CUDA context does not survive multiprocessing fork — importing it in the parent
+# poisons the forked child (the particle filter's first cudaMalloc then fails
+# with "initialization error"). The import is done inside load_threaded_cam(),
+# which the engine calls from initialize() in the *child* process, populating the
+# module-level `rs` used by the methods below (all called only after the camera
+# is loaded). See CLAUDE.md on construct-in-initialize().
+rs = None  # set by load_threaded_cam()
 
 
 class RealSenseVideoStream(VideoStream):
@@ -26,6 +34,8 @@ class RealSenseVideoStream(VideoStream):
 
     Provides color frames, depth queries and simple 3D reprojection helpers.
     """
+
+    supports_depth: bool = True
 
     @property
     def height(self) -> int:
@@ -38,28 +48,56 @@ class RealSenseVideoStream(VideoStream):
         return int(self.color_stream_width)
 
     def __init__(self) -> None:
-        """Initialize the RealSense pipeline and configure streams.
+        """Configure stream parameters; defer the pipeline to load_threaded_cam().
 
-        The constructor will retry until a device connection is successful.
+        The pipeline is intentionally NOT started here. librealsense initializes
+        a CUDA context on ``start()``, and a CUDA context does not survive a
+        multiprocessing fork. Engines construct this singleton in the *parent*
+        process, so starting here would poison the forked child's CUDA state —
+        the particle filter's first ``cudaMalloc`` then fails with
+        "initialization error". ``load_threaded_cam()`` (called from the engine's
+        ``initialize()``, inside the child process) does the real ``start()``.
         """
         # frame buffers
         self.color_frame = None
         self.depth_frame = None
 
-        # stream sizes / framerate
-        self.color_stream_width = aiming.color_stream_width
-        self.color_stream_height = aiming.color_stream_height
+        # color stream sizes / framerate / exposure (from hardware.camera_*)
+        self.color_stream_width = config.hardware.camera_width
+        self.color_stream_height = config.hardware.camera_height
+        self.framerate = config.hardware.camera_fps
+        self.exposure = config.hardware.camera_exposure
+        self.gain = config.hardware.camera_gain
+        self.gamma = config.hardware.camera_gamma
+        self.brightness = config.hardware.camera_brightness
+
+        # depth stream sizes / valid range (from aiming)
         self.depth_stream_width = aiming.depth_stream_width
         self.depth_stream_height = aiming.depth_stream_height
-        self.framerate = aiming.stream_framerate
-
-        # depth valid range
         self.depth_min = aiming.min_depth
         self.depth_max = aiming.max_depth
 
         self.frame_number = 1
 
-        # configure pipeline and start
+        # Built and started in load_threaded_cam() (child process).
+        self.pipeline = None
+        self.align = None
+        self.rs_intrinsics = None
+
+    def load_threaded_cam(self) -> None:
+        """Build and start the RealSense pipeline. Must run in the child process.
+
+        Deferred out of ``__init__`` so that BOTH the ``import pyrealsense2``
+        (which initializes a CUDA context on Jetson) and the pipeline ``start()``
+        happen in the engine's child process rather than the parent — a CUDA
+        context does not survive multiprocessing fork (see CLAUDE.md). Retries
+        until a device connection succeeds.
+        """
+        global rs
+        if rs is None:
+            import pyrealsense2 as rs  # noqa: F811 — child-process-only import
+
+        self.align = rs.align(rs.stream.color)
         self.pipeline = rs.pipeline()
         conf = rs.config()
         conf.enable_stream(
@@ -81,11 +119,29 @@ class RealSenseVideoStream(VideoStream):
             try:
                 self.cfg = self.pipeline.start(conf)
 
-                sensors = (
-                    self.pipeline.get_active_profile().get_device().query_sensors()
-                )
-                for sensor in sensors:
+                device = self.pipeline.get_active_profile().get_device()
+                for sensor in device.query_sensors():
                     sensor.set_option(rs.option.global_time_enabled, False)
+
+                # Manual exposure + gain/gamma/brightness from config
+                # (auto-exposure disabled). Short exposure cuts rolling-shutter
+                # smear; gain/gamma/brightness recover image brightness — gamma
+                # lifts the icon's midtones without clipping the bright lightbars.
+                color_sensor = device.first_color_sensor()
+                color_sensor.set_option(rs.option.enable_auto_exposure, 0)
+                color_sensor.set_option(rs.option.exposure, float(self.exposure))
+                color_sensor.set_option(rs.option.gain, float(self.gain))
+                color_sensor.set_option(rs.option.gamma, float(self.gamma))
+                color_sensor.set_option(rs.option.brightness, float(self.brightness))
+
+                # Real color-stream intrinsics, used only for depth deprojection
+                # in get_xyz_at(). Captured in-process here; never touches the
+                # parent. get_intrinsics() still returns placeholders for PnP.
+                self.rs_intrinsics = (
+                    self.cfg.get_stream(rs.stream.color)
+                    .as_video_stream_profile()
+                    .get_intrinsics()
+                )
             except Exception as error:
                 print("")
                 print(error)
@@ -93,43 +149,45 @@ class RealSenseVideoStream(VideoStream):
                 continue
             break
 
-    def get_frame(self) -> Optional[np.ndarray]:
-        """Return the latest color frame as a NumPy array.
+    def get_frame(self) -> Optional[Frame]:
+        """Return the latest aligned color frame.
 
         Returns:
-            numpy.ndarray | None: color image in BGR format, or None on failure.
+            Frame | None: BGR color image + capture timestamp, or None on failure.
         """
+        assert self.pipeline is not None, (
+            "Call load_threaded_cam() before get_frame()."
+        )
         try:
+            timestamp = perf_counter()
             frame = self.pipeline.wait_for_frames()
             # Only works for the D435i IMU frames (if present)
             # runtime.camera.acceleration = frame[2].as_motion_frame().get_motion_data()
             # runtime.camera.gyro = frame[3].as_motion_frame().get_motion_data()
 
-            align_start = perf_counter()
-            aligned_frames = align.process(frame)
+            aligned_frames = self.align.process(frame)
 
             self.color_frame = aligned_frames.get_color_frame()
             self.depth_frame = aligned_frames.get_depth_frame()
 
-            capture_time = frame.get_frame_metadata(
-                rs.frame_metadata_value.sensor_timestamp
-            )
-            frame_time = frame.get_frame_metadata(
-                rs.frame_metadata_value.frame_timestamp
-            )
-            self.capture_time = time() * 1000 - (
-                (frame_time - capture_time) / MICRO_SECONDS_TO_MILLISECONDS
-            )
-
-            align_end = perf_counter()
-            _ = (align_end - align_start) * 1000  # ms, kept for potential debug
+            # capture_time = frame.get_frame_metadata(
+            #     rs.frame_metadata_value.sensor_timestamp
+            # )
+            # frame_time = frame.get_frame_metadata(
+            #     rs.frame_metadata_value.frame_timestamp
+            # )
+            # self.capture_time = time() * 1000 - (
+            #     (frame_time - capture_time) / MICRO_SECONDS_TO_MILLISECONDS
+            # )
 
             self.frame_number += 1
             if (
                 config.hardware.flip_camera
             ):  # rotate 180 degrees and copy to avoid negative strides
-                return np.rot90(np.asanyarray(self.color_frame.get_data()), k=2).copy()  # type: ignore[attr-defined]
-            return np.asanyarray(self.color_frame.get_data())  # type: ignore[attr-defined]
+                data = np.rot90(np.asanyarray(self.color_frame.get_data()), k=2).copy()  # type: ignore[attr-defined]
+            else:
+                data = np.asanyarray(self.color_frame.get_data())  # type: ignore[attr-defined]
+            return Frame(data=data, timestamp=timestamp)
         except Exception as error:
             print(error)
             print("VideoStream: error while getting frames:", error, sys.exc_info()[0])
@@ -137,37 +195,40 @@ class RealSenseVideoStream(VideoStream):
             return None
 
     def get_intrinsics(self) -> Intrinsics:
-        """Query and return camera intrinsics.
+        """Return placeholder pinhole intrinsics for PnP.
 
-        Raises:
-            RuntimeError: if no device, color sensor, or video profile is available.
+        FAKE VALUES FOR NOW. Querying the real device here is commented out
+        because (a) it would touch ``rs`` in the parent process at import time
+        (pnp.py reads this at module load) and (b) the rvec we want from PnP is
+        the immediate goal; position comes from depth, not PnP. Distortion is
+        zero (RealSense color is pre-rectified). Replace with the real query
+        below once the rest of the pipeline is validated.
         """
-        ctx = rs.context()
-        devices = ctx.query_devices()
-        if len(devices) == 0:
-            raise RuntimeError("No RealSense device connected")
-        dev = devices[0]
-
-        try:
-            color_sensor = dev.query_sensors()[1]
-        except Exception:
-            raise RuntimeError("Color sensor not found")
-
+        # ctx = rs.context()
+        # devices = ctx.query_devices()
+        # if len(devices) == 0:
+        #     raise RuntimeError("No RealSense device connected")
+        # dev = devices[0]
         # try:
-        #     vsp = color_sensor.get_cam_profiles()[0].as_video_cam_profile()
+        #     color_sensor = dev.query_sensors()[1]
         # except Exception:
-        #     raise RuntimeError("Video cam profile not found")
-
+        #     raise RuntimeError("Color sensor not found")
+        # vsp = color_sensor.get_cam_profiles()[0].as_video_cam_profile()
         # intr = vsp.get_intrinsics()
-
-        # # camera intrinsics
         # dist = np.array(intr.coeffs)
         # cam_matrix = np.array(
         #     [[intr.fx, 0, intr.ppx], [0, intr.fy, intr.ppy], [0, 0, 1]]
         # )
 
-        dist = np.zeros(5)  # ignore distortion coefficients, as RealSense cameras are pre-distorted and this causes more issues than it solves
-        cam_matrix = np.zeros((3, 3))  # placeholder to avoid mypy error about uninitialized variable
+        dist = np.zeros(5)  # RealSense color is pre-rectified -> no distortion
+        # Non-degenerate placeholder K so cv.solvePnP stays well-posed:
+        # rough focal length, principal point at frame center.
+        fx = fy = 600.0
+        cx = self.color_stream_width / 2.0
+        cy = self.color_stream_height / 2.0
+        cam_matrix = np.array(
+            [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64
+        )
 
         return Intrinsics(dist, cam_matrix)
 
@@ -190,7 +251,7 @@ class RealSenseVideoStream(VideoStream):
         Example:
             x, y, z = video.get_xyz_at(1, 2)
         """
-        point_3d = rs.rs2_deproject_pixel_to_point(self.get_intrinsics(), [u, v], depth)
+        point_3d = rs.rs2_deproject_pixel_to_point(self.rs_intrinsics, [u, v], depth)
         point_3d = self._retransform_3d_point_to_coordinate_system(point_3d)
         point_3d = self._offset_3d_point_to_camera_center(point_3d)
         return point_3d
@@ -217,6 +278,7 @@ class RealSenseVideoStream(VideoStream):
         return (point_3d[0], point_3d[1], point_3d[2])
 
     def __del__(self) -> None:
-        """Destructor: stop the RealSense pipeline."""
-        print("Closing Realsense Pipeline")
-        self.pipeline.stop()
+        """Destructor: stop the RealSense pipeline if it was started."""
+        if getattr(self, "pipeline", None) is not None:
+            print("Closing Realsense Pipeline")
+            self.pipeline.stop()

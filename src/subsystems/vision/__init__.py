@@ -1,1 +1,2 @@
+from .classical_detector.depth_module import ClassicalDepthDetectorModule
 from .classical_detector.module import ClassicalDetectorModule

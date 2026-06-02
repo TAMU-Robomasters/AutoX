@@ -175,16 +175,30 @@
                 camera_intrinsics_path: "main_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
         
 # TODO fix this after you fix threading bug      
+        # CAMERA=SENTRY_CAM:
+        #     hardware:
+        #         camera: realsense
+        #         camera_index: 0
+        #         camera_exposure: 35
+        #         camera_fps: 90
+        #         camera_width: 1280 # 1280
+        #         camera_height: 720 # 720
+        #         camera_intrinsics_path: "mrcal_1280x720"
+        #         lens_correction_mode: normal      
+
         CAMERA=SENTRY_CAM:
             hardware:
-                camera: realsense
-                camera_index: 0
-                camera_exposure: 35
-                camera_fps: 90
-                camera_width: 1280 # 1280
-                camera_height: 720 # 720
-                camera_intrinsics_path: "mrcal_1280x720"
-                lens_correction_mode: unproject        
+                camera: usb_cam
+                camera_index: 4
+                camera_exposure: 35 # 10
+                camera_gain: 128      # color sensor gain (~0-128); raise to brighten (adds noise)
+                camera_gamma: 500     # color sensor gamma (~100-500, default 300); LOWER = brighter shadows/icon
+                camera_brightness: 0  # color sensor brightness offset (-64..64, default 0)
+                camera_fps: 30
+                camera_width: 1920 # 1280
+                camera_height: 1080 # 720
+                camera_intrinsics_path: "realsense_1920x1080"
+                lens_correction_mode: normal      
     
         V8:
             model:
@@ -225,9 +239,18 @@
                 camera_has_pose: false
                 camera_has_acceleration: true
                 camera_has_gyro: true
+                # color stream: RealSense reads width/height/fps/exposure from here.
+                # exposure is manual (auto-exposure disabled); units are 100µs.
+                camera_width: 960
+                camera_height: 540
+                camera_fps: 60
+                camera_exposure: 80
+                camera_gain: 64       # color sensor gain (~0-128); raise to brighten (adds noise)
+                camera_gamma: 300     # color sensor gamma (~100-500, default 300); LOWER = brighter shadows/icon
+                camera_brightness: 0  # color sensor brightness offset (-64..64, default 0)
             aiming:
-                color_stream_width: 960
-                color_stream_height: 540
+                # depth stream dims + valid depth range (color dims come from
+                # hardware.camera_* above)
                 depth_stream_width: 848
                 depth_stream_height: 480
                 stream_framerate: 60

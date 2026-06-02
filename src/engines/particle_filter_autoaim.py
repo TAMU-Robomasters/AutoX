@@ -30,7 +30,7 @@ from src.subsystems.pf import (
     _default_particle_filter,
 )
 from src.subsystems.targeting import TargetingModule
-from src.subsystems.vision import ClassicalDetectorModule
+from src.subsystems.vision import ClassicalDepthDetectorModule, ClassicalDetectorModule
 from src.types.autoaim import ParticleFilterAutoAimContext
 from src.toolbox.globals import config
 from src.subsystems.video_streaming.video_stream import create_video_stream
@@ -55,10 +55,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self._queue = queue
         self.ctx = ParticleFilterAutoAimContext()
 
-        # Modules
+        # self.detection = ClassicalDepthDetectorModule(self.ctx)
         self.detection = ClassicalDetectorModule(self.ctx)
-        # Remap outputs to match ParticleFilterAutoAimContext field names
-        # ClassicalDetectorModule outputs "panels" which matches our context
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
         self.estimation = ParticleFilterEstimationModule(self.ctx)
@@ -132,7 +130,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             if self.ctx.standard and self.ctx.standard.panels:
                 self.ctx.target_robot = self.ctx.standard
 
-            print(f"before transformation: {self.ctx.target_robot.panels[0].position.flatten()}")
+                print(f"before transformation: {self.ctx.target_robot.panels[0].position.flatten()}")
             # ----------------------------------------------------------
             # Transform panels to turret frame via embedded communicator
             # ----------------------------------------------------------
