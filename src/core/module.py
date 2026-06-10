@@ -137,6 +137,20 @@ class Module(ABC, Generic[T]):
         self._run_method: Callable = self._select_run_method()
 
     # ------------------------------------------------------------------
+    # initialize -- engines call this once, in the child process
+    # ------------------------------------------------------------------
+
+    def initialize(self) -> None:
+        """One-time setup run in the engine's (child) process before the loop.
+
+        The owning engine calls this for every module after fork/spawn, so
+        modules can create resources that must NOT be built in the parent
+        process (ML models, GPU/VPI contexts, file handles, ...). Operate on
+        ``self.ctx`` as usual. Default is a no-op; override as needed. This
+        replaces ad-hoc "lazily start on first run()" patterns.
+        """
+
+    # ------------------------------------------------------------------
     # run -- engines call this
     # ------------------------------------------------------------------
 

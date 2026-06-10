@@ -628,3 +628,11 @@ settings/home/.vuerc
 
 # Docs build
 docs/build/
+
+# claude
+.claude
+CLAUDE.md
+
+#scalene 
+profile.html
+profile.json

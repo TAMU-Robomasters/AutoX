@@ -1,31 +1,57 @@
 """Orchestrator: creates engines, wires shared queues, and starts everything."""
 
-import multiprocessing
-from multiprocessing import Queue, Process
-
 from src.engines.particle_filter_autoaim import ParticleFilterAutoAimEngine
-from src.engines.plot_engine import start_plot_engine
+
+
+def launch_system(engine_classes: list) -> list:
+    """Spawn one shared driver process per declared driver, then start engines.
+
+    Reads each engine class's ``drivers`` declaration, provisions + spawns one
+    shared driver process per unique name (always shared — no in-process path),
+    and starts every engine wired to those drivers via a ``driver_registry``.
+    Returns all started processes (drivers + engines) for join/stop. This is the
+    early config-driven orchestrator/watchdog described in CLAUDE.md.
+
+    Engine classes used here must accept a ``driver_registry`` keyword.
+    """
+    # One shared driver per unique name across all engines.
+    needed: dict = {}
+    for engine_cls in engine_classes:
+        for name, driver_type in getattr(engine_cls, "drivers", {}).items():
+            needed[name] = driver_type
+
+    registry: dict = {}
+    processes: list = []
+    for name, driver_type in needed.items():
+        conn = driver_type.provision(name)  # parent-side transport allocation
+        registry[name] = conn
+        driver = driver_type.from_conn(conn)
+        driver.start()
+        processes.append(driver)
+
+    for engine_cls in engine_classes:
+        engine = engine_cls(driver_registry=registry)
+        engine.start()
+        processes.append(engine)
+
+    return processes
 
 
 def start_engines() -> None:
-    """Start all engines and block until they finish or the user interrupts."""
-    panel_x_queue: Queue = Queue(maxsize=4000)
+    """Start the production engines via the driver-aware factory.
 
-    autoaim = ParticleFilterAutoAimEngine(queue=panel_x_queue)
-    plot = Process(
-        target=start_plot_engine,
-        args=(panel_x_queue,),
-        kwargs={"title": "Panel x position (cm)"},
-        daemon=True,
-    )
+    PF now declares `drivers = {"frames": CameraDriver}`, so it must go through
+    launch_system (which spawns the shared CameraDriver and wires the registry).
 
-    autoaim.start()
-    plot.start()
-
+    NOTE: the old angular-velocity plot (start_plot_engine + a shared Queue) is
+    dropped here for now — launch_system doesn't thread the plot Queue through.
+    Re-add later if needed (PF already accepts an optional `queue`).
+    """
+    processes = launch_system([ParticleFilterAutoAimEngine])
     try:
-        autoaim.join()
+        for p in processes:
+            p.join()
     except KeyboardInterrupt:
-        autoaim.stop()
-    finally:
-        plot.terminate()
-        plot.join()
+        for p in processes:
+            p.terminate()
+            p.join()

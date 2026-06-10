@@ -6,7 +6,6 @@ Ported from Armor-Panel-Classical/subsystems/communicate.py. Provides:
 """
 
 import subprocess
-import time
 from ctypes import Structure, c_float, c_uint8, c_uint16, sizeof
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -16,6 +15,14 @@ import numpy.typing as npt
 import serial
 
 from src.toolbox.globals import config
+
+# Serial read timeout (upper bound) for the transform query/response round-trip.
+# read() returns the instant all bytes land, so the happy-path latency is just
+# the message's transmission time -- at 115200 baud the 69-byte reply takes ~6 ms
+# to clock in, so this MUST exceed that or read() returns a partial message and
+# the leftover bytes desync the next read (garbage matrix). This bound only
+# applies when a reply is missing entirely.
+TRANSFORM_READ_TIMEOUT_S = 0.02
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +110,10 @@ class EmbeddedCommunicator:
         if self.port is None:
             print("warning: serial port not available for embedded communication")
             return None
+        # Clear any stale/partial bytes so the reply we read is frame-aligned to
+        # this query (a prior timed-out read could otherwise leave leftover bytes
+        # that desync this one into a garbage matrix).
+        self.port.reset_input_buffer()
         if self._send_query_to_embedded(milliseconds_in_the_past):
             msg = self._read_transformation_message()
             if msg is not None:
@@ -153,7 +164,7 @@ class EmbeddedCommunicator:
             return serial.Serial(
                 self._serial_port_path,
                 baudrate=self._baudrate,
-                timeout=0.05,
+                timeout=TRANSFORM_READ_TIMEOUT_S,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
@@ -171,7 +182,7 @@ class EmbeddedCommunicator:
                 return serial.Serial(
                     self._serial_port_path,
                     baudrate=self._baudrate,
-                    timeout=0.05,
+                    timeout=TRANSFORM_READ_TIMEOUT_S,
                     bytesize=serial.EIGHTBITS,
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
@@ -196,12 +207,9 @@ class EmbeddedCommunicator:
 
     def _read_transformation_message(self) -> Optional[EmbeddedTransformationMessage]:
         expected_size = sizeof(EmbeddedTransformationMessage())
-        start_time = time.time()
-        timeout = 5.0
-        while self.port.in_waiting < expected_size:  # type: ignore[union-attr]
-            if time.time() - start_time > timeout:
-                return None
-            time.sleep(0.01)
+        # read() returns as soon as expected_size bytes arrive (typically
+        # ~1-2 ms) and otherwise blocks at most the port's timeout
+        # (TRANSFORM_READ_TIMEOUT_S) -- no 10 ms busy-poll quantization.
         data = self.port.read(expected_size)  # type: ignore[union-attr]
         if len(data) != expected_size:
             return None

@@ -1,5 +1,5 @@
 import functools
-from multiprocessing import Process as _Process
+from multiprocessing import Event, Process as _Process
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
@@ -72,7 +72,10 @@ class Driver(_Process, ABC):
             then the mock implementation of this driver will automatically be used. 
         """
         super().__init__()
-        
+        # Created in the parent; inherited by the child on start(). This is how
+        # stop() (parent) signals the run() loop (child) — a plain attribute set
+        # in the parent would never be seen across the process boundary.
+        self._stop_event = Event()
 
     @abstractmethod
     def initialize(self):
@@ -83,20 +86,28 @@ class Driver(_Process, ABC):
         """
 
     def run(self):
-        """This is what will be called when you do engine.start().
+        """This is what will be called when you do driver.start().
 
-        Main loop that runs until the engine is stopped.
+        Main loop (runs in the child process) until the driver is stopped.
         """
-        self.active = True
         self.initialize()
-        while self.active:
+        while not self._stop_event.is_set():
             self.execute()
 
     @abstractmethod
     def execute(self):
-        """The main body of an engine. Called repeatedly."""
+        """The main body of a driver. Called repeatedly."""
 
-    def stop(self):
-        """Signal the engine to stop and wait for it to finish."""
-        self.active = False
-        self.join()
+    def stop(self, timeout: float = 2.0):
+        """Signal the driver to stop and wait for the child to exit.
+
+        Sets the shared stop event so the child's loop exits after its current
+        ``execute()``. If the child is blocked inside ``execute()`` (e.g. a
+        blocking camera read) and doesn't exit within ``timeout`` seconds, it is
+        forcefully terminated.
+        """
+        self._stop_event.set()
+        self.join(timeout)
+        if self.is_alive():
+            self.terminate()
+            self.join()

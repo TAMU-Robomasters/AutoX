@@ -9,7 +9,7 @@ from typing import List, Optional
 import cv2 as cv
 import numpy as np
 
-from src.core.module import Context, Module, real
+from src.core.module import Module, real
 from src.subsystems.display import CYAN, GREEN, display, BLUE
 from src.subsystems.vision.classical_detector import (
     armor,
@@ -18,7 +18,8 @@ from src.subsystems.vision.classical_detector import (
     pnp,
 )
 from src.toolbox.geometry_tools import BoundingBox
-from src.types.autoaim import ArmorPanel
+from src.toolbox.globals import config
+from src.types.autoaim import ArmorPanel, ParticleFilterAutoAimContext
 
 
 def _process_pairs(pairs, frame) -> List[ArmorPanel]:
@@ -64,10 +65,10 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
     return panels
 
 
-class ClassicalDetectorModule(Module[Context]):
+class ClassicalDetectorModule(Module[ParticleFilterAutoAimContext]):
     """Detects armor panels using classical computer-vision techniques."""
 
-    def __init__(self, context: Context):
+    def __init__(self, context: ParticleFilterAutoAimContext):
         super().__init__(
             name="classical_detector",
             context=context,
@@ -78,11 +79,18 @@ class ClassicalDetectorModule(Module[Context]):
     @real()
     def _run_detect(self) -> Optional[List[ArmorPanel]]:
         """Process the current video frame and populate *ctx.panels*."""
-        f= video_stream.get_frame()
-        frame = f.data
-        self.ctx.frame_ts = f.timestamp
-        display.windows["main"].img = frame
+        frame = self.ctx.frame
+        if frame is None:
+            # Transitional fallback for engines not yet cut over to feeding
+            # ctx.frame from a CameraSource/FrameReader (e.g. the PF engine).
+            f = video_stream.get_frame()
+            frame = np.asarray(f.data)  # f is a Frame at runtime; no-op, no copy
+            self.ctx.frame_ts = f.timestamp
         assert frame is not None, "No frame received."
+        if config.log.display_live_frames:
+            # set_image copies (so read-only shm frames are safe to draw on);
+            # skip it entirely when we're not showing anything.
+            display.windows["main"].set_image(frame)
 
 
         contours = frame_proccesing.frame_process(frame)

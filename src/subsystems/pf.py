@@ -24,7 +24,7 @@ def _default_particle_filter() -> ParticleFilter:
     to centimetres for AutoX's coordinate system (1 m = 100 cm).
     """
     # From sim: [0.7, 0.7, 2.0] m/s, rad/s  →  cm/s, rad/s
-    Q_vel    = np.array([70.0, 70.0, 0.3], dtype=np.float32)
+    Q_vel    = np.array([100.0, 100.0, 0.6], dtype=np.float32)
     # From sim: [1.0, 1.0, 0.1, 0.1, 0.3, 15.0]  (m, m, m/s, m/s, rad, rad/s)
     init_std = np.array([100.0, 100.0, 10.0, 10.0, 0.3, 15.0], dtype=np.float32)
     prior    = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)

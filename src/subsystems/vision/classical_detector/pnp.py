@@ -3,11 +3,10 @@
 import cv2 as cv
 import numpy as np
 
-from src.subsystems.video_streaming.video_stream import Intrinsics, video_stream
-from src.toolbox.globals import config
+from src.drivers.video_stream import Intrinsics, camera_info
 
-# camera intrinsics
-intrinsics: Intrinsics = video_stream.get_intrinsics()
+# camera intrinsics (static; loaded once from the cameramodel file, no camera)
+intrinsics: Intrinsics = camera_info.intrinsics()
 dist = intrinsics.distortion_coefficients
 cam_matrix = intrinsics.camera_matrix
 
@@ -77,13 +76,6 @@ def get_cord(panel):
             inner_obj = hero_inner_coordinates
             outer_obj = hero_coordinates
 
-        # In "unproject" mode the frame is raw (distorted), so the detected
-        # corners are raw pixels. Undistort them to equivalent pinhole pixels
-        # before PnP — cam_matrix/dist are the pinhole K + zero distortion. In
-        # "warp" mode the frame is already pinhole, so points are used as-is.
-        if config.hardware.lens_correction_mode == "unproject":
-            points = video_stream.distorted_to_pinhole(points).astype(np.float32)
-
         success, rvec, tvec = cv.solvePnP(
             inner_obj, points, cam_matrix, dist, flags=cv.SOLVEPNP_ITERATIVE
         )
@@ -102,14 +94,5 @@ def get_cord(panel):
             # Reproject the full outer-panel object points through the pose we
             # just solved for, to get the canonical outer-panel pixel boundary
             # (shape (4, 1, 2)) for display + ArmorPanel.
-            if config.hardware.lens_correction_mode == "unproject":
-                # Frame is raw: pose the object points into the camera frame and
-                # project through the splined model so the box lands on the
-                # distorted image.
-                rmat, _ = cv.Rodrigues(rvec)
-                outer_cam = (rmat @ outer_obj.T).T + tvec.reshape(3)
-                outer_px = video_stream.camera_points_to_raw_pixels(outer_cam)
-                panel.outer_corners = outer_px.reshape(-1, 1, 2).astype(np.int32)
-            else:
-                outer_px, _ = cv.projectPoints(outer_obj, rvec, tvec, cam_matrix, dist)
-                panel.outer_corners = outer_px.astype(np.int32)
+            outer_px, _ = cv.projectPoints(outer_obj, rvec, tvec, cam_matrix, dist)
+            panel.outer_corners = outer_px.astype(np.int32)

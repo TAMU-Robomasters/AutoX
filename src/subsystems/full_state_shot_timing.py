@@ -110,7 +110,7 @@ class FullStateShotTimingModule(Module[ParticleFilterAutoAimContext]):
         pitch, t = min(solutions, key=lambda s: s[1])
 
         time_since_estimate = time.perf_counter() - estimate.timestamp
-        feeder_delay = 0.0 #0.065
+        feeder_delay = 0.05 #0.065
 
         if self._pf is None:
             raise RuntimeError("Particle filter not set. Engine must inject it in initialize().")

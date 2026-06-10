@@ -118,15 +118,28 @@
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
-                z_offset: -18           # cm (vertical offset to target)
-                yaw_offset: -3           # degrees (horizontal offset to target)
-                barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
+                # z_offset: -18           # cm (vertical offset to target)
+                z_offset: -32 # realsense
+                # yaw_offset: -3           # degrees (horizontal offset to target)
+                yaw_offset: -3 # realsense
+                # barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
+                barrel_offset: [0.0325, 0.150, 0.0]
+             # realsense
                 omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
             communication:
                 timeout: 0.05
-                serial_baudrate: 115200
+                serial_baudrate: 460800
                 serial_port: "/dev/ttyTHS1"
-                
+
+            # MCU bridge driver (see plans/01-mcu-driver.md). One process owns the
+            # UART; engines talk to it via McuClient. backend is overridden by the
+            # MCU=* profiles below. ros.stack is set by the ROS=* profiles.
+            mcu:
+                backend: mock          # mock | serial | ros  (overridden by MCU=*)
+                rpc_timeout: 0.05      # seconds an engine waits for an McuDriver reply
+            ros:
+                stack: none            # none | nav2  (set by ROS=*)
+
             zed:
                 resolution: "HD720"       # HD2K, HD1080, HD720, VGA, LAST
                 depth_mode: "PERFORMANCE" # ULTRA, QUALITY, NEURAL, PERFORMANCE, NONE, LAST
@@ -175,30 +188,30 @@
                 camera_intrinsics_path: "main_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
         
 # TODO fix this after you fix threading bug      
-        # CAMERA=SENTRY_CAM:
-        #     hardware:
-        #         camera: realsense
-        #         camera_index: 0
-        #         camera_exposure: 35
-        #         camera_fps: 90
-        #         camera_width: 1280 # 1280
-        #         camera_height: 720 # 720
-        #         camera_intrinsics_path: "mrcal_1280x720"
-        #         lens_correction_mode: normal      
-
         CAMERA=SENTRY_CAM:
             hardware:
                 camera: usb_cam
-                camera_index: 4
-                camera_exposure: 35 # 10
-                camera_gain: 128      # color sensor gain (~0-128); raise to brighten (adds noise)
-                camera_gamma: 500     # color sensor gamma (~100-500, default 300); LOWER = brighter shadows/icon
-                camera_brightness: 0  # color sensor brightness offset (-64..64, default 0)
-                camera_fps: 30
-                camera_width: 1920 # 1280
-                camera_height: 1080 # 720
-                camera_intrinsics_path: "realsense_1920x1080"
+                camera_index: 0
+                camera_exposure: 35
+                camera_fps: 90
+                camera_width: 1280 # 1280
+                camera_height: 720 # 720
+                camera_intrinsics_path: "mrcal_1280x720"
                 lens_correction_mode: normal      
+
+        # CAMERA=SENTRY_CAM:
+        #     hardware:
+        #         camera: usb_cam
+        #         camera_index: 4
+        #         camera_exposure: 80 # 10
+        #         camera_gain: 128      # color sensor gain (~0-128); raise to brighten (adds noise)
+        #         camera_gamma: 500     # color sensor gamma (~100-500, default 300); LOWER = brighter shadows/icon
+        #         camera_brightness: 10  # color sensor brightness offset (-64..64, default 0)
+        #         camera_fps: 30
+        #         camera_width: 1920 # 1280
+        #         camera_height: 1080 # 720
+        #         camera_intrinsics_path: "realsense_1920x1080"
+        #         lens_correction_mode: normal      
     
         V8:
             model:
@@ -211,7 +224,7 @@
             model:
                 hardware_acceleration: "tensor_rt"
             communication:
-                serial_port: "/dev/ttyTHS1" 
+                serial_port: "/dev/ttyTHS1"  
             log:
                 save_frame_to_file: false
         BOARD=LAPTOP:
@@ -220,7 +233,26 @@
             log:
                 save_rate: 1 # every frame (1 frame per frame)
                 save_frame_to_file: true
-        
+
+        # MCU backend selection (see plans/01-mcu-driver.md).
+        MCU=MOCK:                  # laptop default: identity transform, no serial, no rclpy
+            mcu:
+                backend: mock
+        MCU=SERIAL:                # AutoX owns /dev/ttyTHS1 directly (nav2 not running)
+            mcu:
+                backend: serial
+        MCU=ROS:                   # nav2 owns the UART; AutoX forwards over ROS (needs ROS=NAV2)
+            mcu:
+                backend: ros
+
+        # ROS stack selection.
+        ROS=NONE:
+            ros:
+                stack: none
+        ROS=NAV2:
+            ros:
+                stack: nav2
+
             
         CAMERA=ZED:
             hardware:

@@ -12,10 +12,17 @@ from src.toolbox.geometry_tools import BoundingBox
 
 @dataclass
 class Frame:
-    """Container for a video frame and its associated metadata."""
+    """Container for a video frame and its associated metadata.
+
+    ``seq`` is a monotonically increasing frame counter set by the camera
+    producer; consumers use it to detect stale (already-processed) frames.
+    For frames received over shared memory, ``data`` is a read-only zero-copy
+    view whose backing sample is held alive on the instance (see FrameReader).
+    """
 
     data: np.ndarray
     timestamp: float
+    seq: int = 0
 
 
 # ---------------------------------------------------------------------------

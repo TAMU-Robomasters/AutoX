@@ -3,7 +3,7 @@
 import cv2 as cv
 import numpy as np
 
-from src.subsystems.video_streaming.video_stream import video_stream
+from src.drivers.video_stream import camera_info
 
 
 def _rgb(red, blue, green):
@@ -28,7 +28,7 @@ class Display:
 
     def __init__(self):
         """Initialize the Display singleton."""
-        image = np.zeros((video_stream.height, video_stream.width, 3), dtype=np.uint8)
+        image = np.zeros((camera_info.height, camera_info.width, 3), dtype=np.uint8)
         self.windows = {"main": Window(image)}
 
     def add_window(self, name, image):
@@ -51,7 +51,12 @@ class Display:
     def __del__(self):
         """Destroy all OpenCV windows on deletion."""
         for name in getattr(self, "windows", {}):
-            cv.destroyWindow(name)
+            try:
+                cv.destroyWindow(name)
+            except cv.error:
+                # Window was never actually shown (display disabled) -> nothing
+                # to destroy; ignore the "NULL guiReceiver" error.
+                pass
 
 
 class Window:
@@ -60,6 +65,17 @@ class Window:
     def __init__(self, image: np.ndarray):
         """OpenCV Window wrapper around an image."""
         self.img = image
+
+    def set_image(self, image: np.ndarray) -> None:
+        """Set the image to annotate, copying it first.
+
+        The drawing helpers below mutate ``img`` in place, and the source frame
+        may be a read-only zero-copy view from shared memory (writing to which
+        raises / segfaults). Copying here lets callers hand us any frame and draw
+        on it freely without corrupting the original. This is the entry point for
+        the "annotate a frame for visualization" workflow.
+        """
+        self.img = np.array(image, copy=True)
 
     def add_point(self, *, x, y, color=YELLOW, radius=3):
         """Add a point to the image at the specified location."""

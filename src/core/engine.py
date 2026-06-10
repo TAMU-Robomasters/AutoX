@@ -7,7 +7,7 @@ and provide an easy way to swap out modules with their mocks during runtime.
 import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
-from typing import Generic, List, Set, Type, TypeVar
+from typing import Generic, List, Optional, Set, Type, TypeVar
 
 from src.core.module import Context, Module
 
@@ -29,7 +29,18 @@ class Engine(_Process, ABC, Generic[T]):
     to avoid running initialization code in the parent process before multiprocessing fork/spawn.
     """
 
-    def __init__(self, modules: List[Module], context_type: Type[T]):
+    #: Drivers this engine consumes, ``{name: DriverType}``. The orchestrator
+    #: factory provisions one shared driver process per name and passes a
+    #: ``driver_registry`` so the engine can build a client handle in its child
+    #: process. Override in subclasses; default = no drivers.
+    drivers: dict = {}
+
+    def __init__(
+        self,
+        modules: List[Module],
+        context_type: Type[T],
+        driver_registry: Optional[dict] = None,
+    ):
         """Initialize the engine.
 
         Args:
@@ -38,10 +49,16 @@ class Engine(_Process, ABC, Generic[T]):
                             by the engine's modules.  This is used for
                             validating that inputs and outputs from modules are
                             actually valid and present in the context.
+            driver_registry: ``{name: conn}`` from the orchestrator factory,
+                            where ``conn`` is whatever the driver's
+                            ``provision()`` returned (e.g. an iceoryx2 service
+                            name or a queue pair). Used to build client handles.
         """
         super().__init__()
         self._modules: List[Module] = modules
         self._initial_context_keys: set[str] = {f.name for f in fields(context_type)}
+        self._driver_registry: dict = driver_registry or {}
+        self._driver_handles: dict = {}
         self._validate_wiring()
 
     @abstractmethod
@@ -52,13 +69,35 @@ class Engine(_Process, ABC, Generic[T]):
         to copy the memory into the child process.
         """
 
+    def _build_driver_handles(self):
+        """Create a client handle for each declared driver (child process)."""
+        for name, driver_type in type(self).drivers.items():
+            if name not in self._driver_registry:
+                raise RuntimeError(
+                    f"Engine '{type(self).__name__}' declares driver '{name}' but no "
+                    f"driver registry was provided. Launch engines that declare "
+                    f"`drivers` via `orchestrator.launch_system([...])`, not by "
+                    f"constructing and .start()ing them directly."
+                )
+            conn = self._driver_registry[name]
+            self._driver_handles[name] = driver_type.client(conn)
+
+    def driver(self, name: str):
+        """Return the client handle for a declared driver (built in run())."""
+        return self._driver_handles[name]
+
     def run(self):
         """This is what will be called when you do engine.start().
 
-        Main loop that runs until the engine is stopped.
+        Main loop that runs until the engine is stopped. Everything here runs in
+        the child process, so driver handles and module resources are built here
+        (never in __init__, which runs in the parent before fork/spawn).
         """
         self.active = True
+        self._build_driver_handles()  # driver clients, before initialize() can use them
         self.initialize()
+        for module in self._modules:
+            module.initialize()  # one-time per-module child-process setup
         while self.active:
             self.execute()
             self.update()

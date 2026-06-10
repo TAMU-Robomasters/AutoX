@@ -23,7 +23,6 @@ from src.subsystems.full_state_continuous_fire import FullStateContinuousFireMod
 from src.subsystems.embedded_communicator import CVState
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
-from src.subsystems.embedded_communicator import EmbeddedCommunicator
 
 from src.subsystems.pf import (
     ParticleFilterEstimationModule,
@@ -31,13 +30,13 @@ from src.subsystems.pf import (
 )
 from src.subsystems.targeting import TargetingModule
 from src.subsystems.vision import ClassicalDepthDetectorModule, ClassicalDetectorModule
+from src.subsystems.vision.cpp_detector.module import CppDetectorModule
 from src.types.autoaim import ParticleFilterAutoAimContext
 from src.toolbox.globals import config
-from src.subsystems.video_streaming.video_stream import create_video_stream
 from src.types.autoaim import BallisticSolution
 from src.toolbox.timeout import Timeout
-from src.subsystems.video_streaming.video_stream import video_stream
-from src.toolbox.globals import config
+from src.drivers.video_stream import CameraDriver
+from src.drivers.mcu import McuDriver
 
 
 import time
@@ -51,11 +50,18 @@ METERS_TO_CM = 100
 class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
     """Auto-aim engine using a particle filter for state estimation."""
 
-    def __init__(self, queue: Optional[Queue] = None) -> None:
+    drivers = {"frames": CameraDriver, "mcu": McuDriver}
+
+    def __init__(
+        self, driver_registry: Optional[dict] = None, queue: Optional[Queue] = None
+    ) -> None:
         self._queue = queue
         self.ctx = ParticleFilterAutoAimContext()
 
         # self.detection = ClassicalDepthDetectorModule(self.ctx)
+        # self.detection = ClassicalDetectorModule(self.ctx)
+        # C++ detection pipeline (owns the camera; see initialize()).
+        # self.detection = CppDetectorModule(self.ctx)
         self.detection = ClassicalDetectorModule(self.ctx)
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
@@ -73,10 +79,11 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
                 self.continuous_fire,
             ],
             context_type=ParticleFilterAutoAimContext,
+            driver_registry=driver_registry,
         )
 
     def initialize(self) -> None:
-        """Create child-process resources (communicator + particle filter)."""
+        """Create child-process resources (MCU client + particle filter)."""
         pf = _default_particle_filter()
         self.estimation.set_particle_filter(pf)
         self.shot_timing.set_particle_filter(pf)
@@ -84,15 +91,20 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 
         self.target_timeout = Timeout(duration=RESET_TIMEOUT_MS / 1E3)  # 500 ms timeout for filter updates
 
-        self.communicator = EmbeddedCommunicator()
+        # MCU access goes through the shared McuDriver (serial/ros/mock chosen by
+        # the MCU= profile); the engine no longer opens the UART itself.
+        self.mcu = self.driver("mcu")
         # Fallback pitch/yaw sent when no target is available
         self._last_pitch: float = float(np.deg2rad(-10))
         self._last_yaw: float = 0.0
         self.alignment_time_ms: int = 255  # Large default alignment time when no target is present
         self.cv_state: int = CVState.NO_TARGET.value
 
-        if hasattr(video_stream, 'load_threaded_cam'):
-            video_stream.load_threaded_cam()
+        # Frames come from the shared CameraDriver via this FrameReader handle
+        # (built by the engine base from the driver registry). The detector reads
+        # ctx.frame; it never touches the camera or IPC itself.
+        self.frames = self.driver("frames")
+        self._last_seq = -1
 
 
     def execute(self) -> None:
@@ -101,6 +113,20 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 
         self.alignment_time_ms = 255
         self.cv_state = CVState.NO_TARGET.value
+
+        # ----------------------------------------------------------
+        # 0. Pull the newest frame from the camera driver into the context.
+        #    (Fixes the old "reprocessing the same frame" FIXME: FrameReader
+        #    hands back the freshest frame each loop.)
+        # ----------------------------------------------------------
+        frame = self.frames.latest()
+        while frame is None or frame.seq == self._last_seq:
+            time.sleep(0.0005)  # frame-pace the loop: wait for the next NEW frame
+            frame = self.frames.latest()
+        self._last_seq = frame.seq
+        self.ctx.frame = frame.data
+        self.ctx.frame_ts = frame.timestamp
+
         # ----------------------------------------------------------
         # 1. Detection: frame -> panels
         # ----------------------------------------------------------
@@ -135,10 +161,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             # Transform panels to turret frame via embedded communicator
             # ----------------------------------------------------------
             current_time = time.perf_counter()
-            frame_delay_ms: int = int((current_time - self.ctx.frame_ts) * 1000) - 20
-            transformation_data = self.communicator.get_camera_to_ballistic_transformation(
-                frame_delay_ms
-            )
+            frame_delay_ms: int = int((current_time - self.ctx.frame_ts) * 1000) #- 20
+            transformation_data = self.mcu.get_transformation(frame_delay_ms)
             if transformation_data is None:
                 # Transformation unavailable — keep predicting without a new observation
                 print("warning: no transformation data received from embedded")
@@ -169,7 +193,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
             return
         print(f"Translational Velocity: {self.ctx.estimate.value[2]:.2f} cm/s, {self.ctx.estimate.value[3]:.2f} cm/s")
         print("angular velocity:", self.ctx.estimate.value[5])
-        self._queue.put_nowait(np.degrees(self.ctx.estimate.value[5]))
+        if self._queue is not None:
+            self._queue.put_nowait(np.degrees(self.ctx.estimate.value[5]))
 
 
         # ----------------------------------------------------------
@@ -202,10 +227,10 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
     def update(self) -> None:
         """Display windows to screen."""
         print(f"Sending to embedded: pitch={np.rad2deg(self._last_pitch):.2f} deg, yaw={np.rad2deg(self._last_yaw):.2f} deg, alignment_time={self.alignment_time_ms} ms, cv_state={self.cv_state}")
-        self.communicator.send_angles_to_embedded(
+        self.mcu.send_solution(
             pitch=self._last_pitch,
             yaw=self._last_yaw,
-            time_until_next_fire=self.alignment_time_ms,
+            time_until_fire=self.alignment_time_ms,
             cv_state=self.cv_state,
         )
         print("fps:",  1 /(time.perf_counter() - self.ctx.start_loop_time))
