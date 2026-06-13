@@ -5,7 +5,7 @@ import numpy as np
 
 from src.core.engine import Engine
 from src.core.module import Context
-from src.subsystems.pf import _default_particle_filter
+from src.subsystems.estimation.full_state.pf import _default_particle_filter
 
 
 class PFTestEngine(Engine[Context]):

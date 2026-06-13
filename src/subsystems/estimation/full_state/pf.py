@@ -8,12 +8,14 @@ from typing import Optional
 
 import numpy as np
 
-from src.core.module import Module, real, mock
-from src.subsystems.particle_filter import ParticleFilter
+from src.core.module import Module, mock, real
+from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.full_state.particle_filter import ParticleFilter
 from src.types.autoaim import (
+    ArmorPanel,
     EnemyRobot,
-    ParticleFilterAutoAimContext,
-    RobotStateEstimate, ArmorPanel,
+    FullStateAutoAimContext,
+    RobotStateEstimate,
 )
 
 
@@ -38,35 +40,35 @@ def _default_particle_filter() -> ParticleFilter:
         radius=23.5,        # sim: 0.235 m → 23.5 cm
     )
 
-class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
+class ParticleFilterEstimationModule(Module[FullStateAutoAimContext]):
     """Estimate robot state using a particle filter."""
 
-    def __init__(self, context: ParticleFilterAutoAimContext):
+    def __init__(self, context: FullStateAutoAimContext):
         super().__init__(
             name="particle_filter_estimation",
             context=context,
             inputs=["target_robot"],
             outputs=["estimate"],
         )
-        self._pf: Optional[ParticleFilter] = None
+        self._estimator: Optional[FullStateEstimator] = None
         self._initialised: bool = False
         self.is_their_target_prev = False
         self.is_their_target = False
         self.last_update_time = time.perf_counter()
 
-    def set_particle_filter(self, pf: ParticleFilter) -> None:
+    def set_estimator(self, estimator: FullStateEstimator) -> None:
         """Inject the particle filter instance created by the engine."""
-        self._pf = pf
+        self._estimator = estimator
         self._initialised = False
 
 
 
     @property
-    def pf(self) -> ParticleFilter:
+    def estimator(self) -> FullStateEstimator:
         """Expose the underlying particle filter (used by engine for reinit)."""
-        if self._pf is None:
+        if self._estimator is None:
             raise RuntimeError("Particle filter has not been initialized for estimation module")
-        return self._pf
+        return self._estimator
 
     def reset(self) -> None:
         """Force re-initialisation on the next observation."""
@@ -82,7 +84,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             return None
         
         self.is_their_target = True
-        if self._pf is None:
+        if self._estimator is None:
             raise RuntimeError("Particle filter is not set. Engine must inject it in initialize()")
 
         panel: ArmorPanel = target_robot.panels[0]
@@ -91,7 +93,7 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
                 [panel.position[0], panel.position[1], 0, 0, panel.yaw, 0],
                 dtype=np.float32,
             )
-            self.pf.reinit(prior)
+            self.estimator.reinit(prior)
             # Reset clock so first dt isn't stale from before target acquisition
             self.last_update_time = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
 
@@ -104,14 +106,14 @@ class ParticleFilterEstimationModule(Module[ParticleFilterAutoAimContext]):
             )  # shape (M, 3)
             dt = self.ctx.frame_ts - self.last_update_time
             self.last_update_time = self.ctx.frame_ts
-            estimate, confidence = self.pf.update(dt, measurements)
+            estimate, confidence = self.estimator.update(dt, measurements)
         else:
             current_time = time.perf_counter()
             dt = current_time - self.last_update_time
             assert dt >= 0, f"Negative dt computed in estimation module: {dt:.4f}s (current_time={current_time:.4f}, last_update_time={self.last_update_time:.4f})"
 
             self.last_update_time = current_time
-            estimate, confidence = self.pf.update_with_no_observation(dt)
+            estimate, confidence = self.estimator.update_with_no_observation(dt)
 
         return RobotStateEstimate(
             value=estimate,

@@ -19,7 +19,7 @@ from src.subsystems.vision.classical_detector import (
 )
 from src.toolbox.geometry_tools import BoundingBox
 from src.toolbox.globals import config
-from src.types.autoaim import ArmorPanel, ParticleFilterAutoAimContext
+from src.types.autoaim import ArmorPanel, FullStateAutoAimContext
 
 
 def _process_pairs(pairs, frame) -> List[ArmorPanel]:
@@ -65,10 +65,10 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
     return panels
 
 
-class ClassicalDetectorModule(Module[ParticleFilterAutoAimContext]):
+class ClassicalDetectorModule(Module[FullStateAutoAimContext]):
     """Detects armor panels using classical computer-vision techniques."""
 
-    def __init__(self, context: ParticleFilterAutoAimContext):
+    def __init__(self, context: FullStateAutoAimContext):
         super().__init__(
             name="classical_detector",
             context=context,

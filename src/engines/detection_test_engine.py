@@ -15,20 +15,20 @@ from src.drivers.video_stream import CameraDriver
 from src.subsystems.display import display
 from src.subsystems.vision.classical_detector.module import ClassicalDetectorModule
 from src.toolbox.globals import config
-from src.types.autoaim import ParticleFilterAutoAimContext
+from src.types.autoaim import FullStateAutoAimContext
 
 
-class DetectionTestEngine(Engine[ParticleFilterAutoAimContext]):
+class DetectionTestEngine(Engine[FullStateAutoAimContext]):
     """Engine that runs the detector in a loop and prints panel count + FPS."""
 
     drivers = {"frames": CameraDriver}
 
     def __init__(self, driver_registry: dict | None = None) -> None:
-        self.ctx = ParticleFilterAutoAimContext()
+        self.ctx = FullStateAutoAimContext()
         self.detection = ClassicalDetectorModule(self.ctx)
         super().__init__(
             modules=[self.detection],
-            context_type=ParticleFilterAutoAimContext,
+            context_type=FullStateAutoAimContext,
             driver_registry=driver_registry,
         )
 

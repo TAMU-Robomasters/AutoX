@@ -1,6 +1,7 @@
 """Orchestrator: creates engines, wires shared queues, and starts everything."""
 
-from src.engines.particle_filter_autoaim import ParticleFilterAutoAimEngine
+from src.engines.full_state_autoaim import FullStateAutoAimEngine
+from src.toolbox.logger import start_log_listener, stop_log_listener
 
 
 def launch_system(engine_classes: list) -> list:
@@ -14,6 +15,10 @@ def launch_system(engine_classes: list) -> list:
 
     Engine classes used here must accept a ``driver_registry`` keyword.
     """
+    # One log queue + listener for all processes: children enqueue records,
+    # this (parent) process owns the console/file handlers. Idempotent.
+    log_queue, _ = start_log_listener()
+
     # One shared driver per unique name across all engines.
     needed: dict = {}
     for engine_cls in engine_classes:
@@ -31,6 +36,7 @@ def launch_system(engine_classes: list) -> list:
 
     for engine_cls in engine_classes:
         engine = engine_cls(driver_registry=registry)
+        engine._log_queue = log_queue  # inherited by the child at fork (see Engine.run)
         engine.start()
         processes.append(engine)
 
@@ -40,14 +46,15 @@ def launch_system(engine_classes: list) -> list:
 def start_engines() -> None:
     """Start the production engines via the driver-aware factory.
 
-    PF now declares `drivers = {"frames": CameraDriver}`, so it must go through
-    launch_system (which spawns the shared CameraDriver and wires the registry).
+    The engine declares `drivers = {"frames": CameraDriver, "mcu": McuDriver}`, so
+    it must go through launch_system (which spawns the shared drivers and wires
+    the registry).
 
     NOTE: the old angular-velocity plot (start_plot_engine + a shared Queue) is
     dropped here for now — launch_system doesn't thread the plot Queue through.
-    Re-add later if needed (PF already accepts an optional `queue`).
+    Re-add later if needed (the engine already accepts an optional `queue`).
     """
-    processes = launch_system([ParticleFilterAutoAimEngine])
+    processes = launch_system([FullStateAutoAimEngine])
     try:
         for p in processes:
             p.join()
@@ -55,3 +62,5 @@ def start_engines() -> None:
         for p in processes:
             p.terminate()
             p.join()
+    finally:
+        stop_log_listener()  # flush any queued records before exit

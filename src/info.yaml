@@ -7,7 +7,10 @@
         main_test_video: &main_test_video ../assets/test.mp4
         icons_folder: ../assets/icons
         video_output:              ../result.do_not_sync.mp4
-        permanent_storage:         ./subsystems/log/permanent_storage.json
+        # learned per-enemy-robot constants (radii / panel height delta), written
+        # by the auto-aim engine on convergence; gitignored via **/*.ignore
+        robot_constants:           ./local_data.ignore/robot_constants.json
+        log_file:                  ../logs.ignore/autox.log
         record_video_output_color: ./subsystems/log/color_vid
         calibration_presets: ../assets/intrinsics
         # model
@@ -103,8 +106,15 @@
                 testing:
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
-                disable_all_logging: false
+                disable_all_logging: false # kill switch: logging.disable() everywhere (perf)
                 disable_print: false
+                # stdlib-logging setup (src/toolbox/logger.py): one queue, the
+                # orchestrator parent owns the console/file handlers.
+                level: DEBUG              # root level for all autox.* loggers
+                levels: {}                 # per-logger overrides, e.g. {panel_tracking: DEBUG}
+                to_file: false             # also write to (path_to) log_file (rotating)
+                max_file_mb: 20
+                backup_count: 3
                 save_frame_to_file: false
                 display_live_frames: false
                 save_depth: false
@@ -115,17 +125,33 @@
                 enable: False    # when true, modules use @mock methods instead of @real
                 hardware: []     # list of available hardware (e.g. ["jetson", "gpu"]). methods with @real(requires="X") fall back to mock if X is not listed here.
 
+            # Full-state auto-aim engine loop + target-lock policy.
+            autoaim:
+                loop_hz: 300                    # rate CAP: the loop runs as fast as it can
+                                                # and only sleeps to avoid exceeding this.
+                target_reset_timeout_ms: 500    # lose the locked target after this long
+                                                # without seeing its panels.
+                target_switch_distance_ratio: 0.6  # switch off the locked robot only if a
+                                                   # different robot is closer than this
+                                                   # fraction of the locked distance.
+
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2300 # cm/s
-                # z_offset: -18           # cm (vertical offset to target)
+                # z_offset is only used by the ARCHIVED engine; the live engine
+                # aims at the measured panel height (aim_z) instead.
                 z_offset: -32 # realsense
                 # yaw_offset: -3           # degrees (horizontal offset to target)
-                yaw_offset: -3 # realsense
+                yaw_offset: 0 # -4  -3 # realsense
                 # barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
                 barrel_offset: [0.0325, 0.150, 0.0]
              # realsense
                 omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
+                # Single-panel solver validity gates (state 1 / 2a): outside
+                # these the engine keeps aiming but holds fire (cv_state NO_TARGET).
+                max_time_of_flight: 1.5   # s
+                max_range: 800            # cm, horizontal
+                solver_tol: 1.0e-4        # LM residual tolerance (metres)
             communication:
                 timeout: 0.05
                 serial_baudrate: 460800
@@ -139,6 +165,29 @@
                 rpc_timeout: 0.05      # seconds an engine waits for an McuDriver reply
             ros:
                 stack: none            # none | nav2  (set by ROS=*)
+
+            # Full-state estimator backend. `method` only applies to the ARCHIVED
+            # engine (the live engine is Kalman-filter-only); the rest configures
+            # the live engine's online constant learning (state 1).
+            estimation:
+                method: kalman_filter   # particle_filter | kalman_filter (archive engine only)
+                initial_radius_guess: 30  # cm, back-projection radius before radii converge
+                # Convergence gates for saving learned constants (T1). NOTE: an
+                # F=I KF's posterior variance floors near sqrt(Q*R) -- keep these
+                # thresholds above that floor or T1 never fires; min_constant_updates
+                # is the backstop against firing instantly.
+                radii_var_threshold: 1.0   # cm^2, per-parity radius variance
+                height_var_threshold: 1.0  # cm^2
+                min_constant_updates: 20    # measurements before constants may save
+                # Below these the quantity is "equal" and can't anchor parity.
+                height_degenerate_cm: 3.0
+                radii_degenerate_cm: 3.0
+                panel_jump_reinit_cm: 24.0  # single-panel KF re-seed jump threshold
+                force_reestimation: true   # ignore saved constants, redo state 1
+                # Z-height KF (panel-center height). Low process noise: height is
+                # ~constant, so predict ~= hold and the filter rides out flicker.
+                height_kf_q: 0.5           # process-noise std (cm/s-equiv); keep small
+                height_kf_r: 3.0           # measurement-noise std (cm) of the mid-height
 
             zed:
                 resolution: "HD720"       # HD2K, HD1080, HD720, VGA, LAST
@@ -252,6 +301,14 @@
         ROS=NAV2:
             ros:
                 stack: nav2
+
+        # Full-state estimator backend selection (FullStateAutoAimEngine).
+        ESTIMATION=PARTICLE_FILTER:    # GPU particle filter (src/subsystems/pf.py)
+            estimation:
+                method: particle_filter
+        ESTIMATION=KALMAN_FILTER:      # CPU position+angle KF pair (src/subsystems/kf.py)
+            estimation:
+                method: kalman_filter
 
             
         CAMERA=ZED:

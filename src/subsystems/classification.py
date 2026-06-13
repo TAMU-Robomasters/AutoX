@@ -12,14 +12,14 @@ from src.types.autoaim import (
     ArmorPanel,
     EnemyRobot,
     ICON_TO_ROBOT_NAME,
-    ParticleFilterAutoAimContext,
+    FullStateAutoAimContext,
 )
 
 
-class RobotClassificationModule(Module[ParticleFilterAutoAimContext]):
+class RobotClassificationModule(Module[FullStateAutoAimContext]):
     """Classify detected panels into sentry, hero, and standard robots."""
 
-    def __init__(self, context: ParticleFilterAutoAimContext):
+    def __init__(self, context: FullStateAutoAimContext):
         super().__init__(
             name="robot_classification",
             context=context,

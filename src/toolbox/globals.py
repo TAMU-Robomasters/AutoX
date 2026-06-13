@@ -23,6 +23,7 @@ info = find_and_load(
         "CAMERA=NONE",
         "MCU=MOCK",
         "ROS=NONE",
+        "ESTIMATION=PARTICLE_FILTER",
     ],
 )
 

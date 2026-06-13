@@ -1,4 +1,8 @@
-"""Particle-filter auto-aim engine.
+"""ARCHIVED full-state auto-aim engine (pre state-machine refactor).
+
+Kept as the reference implementation of the single-radius pipeline and the only
+home of the GPU particle-filter backend (ESTIMATION=PARTICLE_FILTER). The live
+engine is ``src/engines/full_state_autoaim.py``.
 
 Full pipeline:
     1. ClassicalDetector  -> panels
@@ -6,49 +10,55 @@ Full pipeline:
     3. (execute logic)     -> decide whether to run targeting
     4. Targeting           -> target_robot
     5. (execute logic)     -> transform panels to turret frame via embedded communicator
-    6. ParticleFilterEstimation -> estimate
+    6. FullStateEstimation -> estimate  (particle filter or Kalman filter, see ESTIMATION=*)
     7a. FullStateShotTimingModule     -> solution  (|ω| > omega_spin_threshold)
     7b. FullStateContinuousFireModule -> solution  (|ω| ≤ omega_spin_threshold)
     8. (execute logic)     -> send solution to embedded
 """
 
+import time
+from multiprocessing import Queue
+from typing import Optional, Union
+
 import cv2 as cv
 import numpy as np
-from multiprocessing import Queue
-from typing import Optional
 
 from src.core.engine import Engine
-from src.subsystems.full_state_shot_timing import FullStateShotTimingModule
-from src.subsystems.full_state_continuous_fire import FullStateContinuousFireModule
-from src.subsystems.embedded_communicator import CVState
+from src.drivers.mcu import McuDriver
+from src.drivers.video_stream import CameraDriver
+from src.subsystems.ballistics.full_state_continuous_fire import (
+    FullStateContinuousFireModule,
+)
+from src.subsystems.ballistics.full_state_shot_timing import FullStateShotTimingModule
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
-
-from src.subsystems.pf import (
+from src.subsystems.embedded_communicator import CVState
+from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.full_state.kf import (
+    KalmanFilterEstimationModule,
+    _default_full_state_kf,
+)
+from src.subsystems.estimation.full_state.pf import (
     ParticleFilterEstimationModule,
     _default_particle_filter,
 )
 from src.subsystems.targeting import TargetingModule
 from src.subsystems.vision import ClassicalDepthDetectorModule, ClassicalDetectorModule
 from src.subsystems.vision.cpp_detector.module import CppDetectorModule
-from src.types.autoaim import ParticleFilterAutoAimContext
 from src.toolbox.globals import config
-from src.types.autoaim import BallisticSolution
 from src.toolbox.timeout import Timeout
-from src.drivers.video_stream import CameraDriver
-from src.drivers.mcu import McuDriver
-
-
-import time
+from src.types.autoaim import BallisticSolution, FullStateAutoAimContext
 
 RESET_TIMEOUT_MS = 500
 METERS_TO_CM = 100
 
+EstimationModule = Union[ParticleFilterEstimationModule, KalmanFilterEstimationModule]
 
-#FIXME:  cap.read from the video stream is not blocking until a new frame arrives meaning we are running stuff on the same frame multiple times 
 
-class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
-    """Auto-aim engine using a particle filter for state estimation."""
+#FIXME:  cap.read from the video stream is not blocking until a new frame arrives meaning we are running stuff on the same frame multiple times
+
+class ArchiveFullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
+    """Auto-aim engine using a configurable full-state estimator (particle filter or Kalman filter)."""
 
     drivers = {"frames": CameraDriver, "mcu": McuDriver}
 
@@ -56,7 +66,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self, driver_registry: Optional[dict] = None, queue: Optional[Queue] = None
     ) -> None:
         self._queue = queue
-        self.ctx = ParticleFilterAutoAimContext()
+        self.ctx = FullStateAutoAimContext()
 
         # self.detection = ClassicalDepthDetectorModule(self.ctx)
         # self.detection = ClassicalDetectorModule(self.ctx)
@@ -65,7 +75,13 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self.detection = ClassicalDetectorModule(self.ctx)
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
-        self.estimation = ParticleFilterEstimationModule(self.ctx)
+
+        self.estimation: EstimationModule
+        if config.estimation.method == "kalman_filter":
+            self.estimation = KalmanFilterEstimationModule(self.ctx)
+        else:
+            self.estimation = ParticleFilterEstimationModule(self.ctx)
+
         self.shot_timing = FullStateShotTimingModule(self.ctx)
         self.continuous_fire = FullStateContinuousFireModule(self.ctx)
 
@@ -78,16 +94,20 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
                 self.shot_timing,
                 self.continuous_fire,
             ],
-            context_type=ParticleFilterAutoAimContext,
+            context_type=FullStateAutoAimContext,
             driver_registry=driver_registry,
         )
 
     def initialize(self) -> None:
-        """Create child-process resources (MCU client + particle filter)."""
-        pf = _default_particle_filter()
-        self.estimation.set_particle_filter(pf)
-        self.shot_timing.set_particle_filter(pf)
-        self.continuous_fire.set_particle_filter(pf)
+        """Create child-process resources (MCU client + state estimator)."""
+        estimator: FullStateEstimator
+        if config.estimation.method == "kalman_filter":
+            estimator = _default_full_state_kf()
+        else:
+            estimator = _default_particle_filter()
+        self.estimation.set_estimator(estimator)
+        self.shot_timing.set_estimator(estimator)
+        self.continuous_fire.set_estimator(estimator)
 
         self.target_timeout = Timeout(duration=RESET_TIMEOUT_MS / 1E3)  # 500 ms timeout for filter updates
 
@@ -108,7 +128,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
 
 
     def execute(self) -> None:
-        """Run one iteration of the particle-filter auto-aim pipeline."""
+        """Run one iteration of the full-state auto-aim pipeline."""
         self.ctx.start_loop_time = time.perf_counter()
 
         self.alignment_time_ms = 255
@@ -180,19 +200,29 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
                         pass
                         # self._queue.put_nowait(float(np.degrees(pan.yaw)))
 
-        
+
         # print(f"Target robot: {self.ctx.target_robot}")
 
         # print(f"Target panels after transformation: {target.panels[0].position}")
         # ----------------------------------------------------------
         # 5. Estimation: target_robot -> estimate
         # ----------------------------------------------------------
+        print("panel angle:", np.degrees(self.ctx.target_robot.panels[0].yaw) if self.ctx.target_robot and self.ctx.target_robot.panels else None)
+
         self.estimation.run()
+
 
         if self.ctx.estimate is None:
             return
+        # The rewritten ballistic modules aim at estimate.aim_z (live panel
+        # mid-height in the new engine). This archive predates that: keep its
+        # legacy fixed config z_offset by filling aim_z here.
+        if self.ctx.estimate.aim_z is None:
+            self.ctx.estimate.aim_z = float(config.ballistic.z_offset)
         print(f"Translational Velocity: {self.ctx.estimate.value[2]:.2f} cm/s, {self.ctx.estimate.value[3]:.2f} cm/s")
         print("angular velocity:", self.ctx.estimate.value[5])
+        print("orientation:", np.degrees(self.ctx.estimate.value[4]))
+        print("panel angle:", np.degrees(self.ctx.target_robot.panels[0].yaw) if self.ctx.target_robot and self.ctx.target_robot.panels else None)
         if self._queue is not None:
             self._queue.put_nowait(np.degrees(self.ctx.estimate.value[5]))
 
@@ -222,7 +252,7 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         self._last_yaw = solution.yaw + np.deg2rad(config.ballistic.yaw_offset)
         self.alignment_time_ms = solution.alignment_time_ms
         self.cv_state = active_cv_state
-    
+
 
     def update(self) -> None:
         """Display windows to screen."""
@@ -236,8 +266,8 @@ class ParticleFilterAutoAimEngine(Engine[ParticleFilterAutoAimContext]):
         print("fps:",  1 /(time.perf_counter() - self.ctx.start_loop_time))
         if config.log.display_live_frames:
             display.show_windows()
-        
-        
+
+
 
 # ---------------------------------------------------------------------------
 # Helpers (not modules -- used inline in execute)

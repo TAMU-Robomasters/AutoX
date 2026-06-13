@@ -10,7 +10,7 @@ import numpy as np
 from src.core.module import Module, real
 from src.types.autoaim import (
     EnemyRobot,
-    ParticleFilterAutoAimContext,
+    FullStateAutoAimContext,
 )
 
 
@@ -26,10 +26,10 @@ def _closest_panel_distance(robot: EnemyRobot) -> float:
     return min(distances) if distances else float("inf")
 
 
-class TargetingModule(Module[ParticleFilterAutoAimContext]):
+class TargetingModule(Module[FullStateAutoAimContext]):
     """Select the closest robot as the target."""
 
-    def __init__(self, context: ParticleFilterAutoAimContext):
+    def __init__(self, context: FullStateAutoAimContext):
         super().__init__(
             name="targeting",
             context=context,

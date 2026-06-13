@@ -15,7 +15,7 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 pybind11_add_module(pf_cuda_cv
-    src/subsystems/pf_cuda_cv.cu
+    src/subsystems/estimation/full_state/pf_cuda_cv.cu
 )
 
 target_link_libraries(pf_cuda_cv PRIVATE

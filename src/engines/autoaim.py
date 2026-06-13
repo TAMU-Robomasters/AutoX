@@ -9,7 +9,7 @@ from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.vision import ClassicalDetectorModule
 from src.types.autoaim import AutoAimContext
 from src.types.ipc import ImageMessage, LogMessage
-from src.subsystems.estimation.module import RadiiEstimatorModule
+from src.subsystems.estimation.radii import RadiiEstimatorModule
 
 """
 # TODO: make context_type just accept the concept

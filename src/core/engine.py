@@ -10,6 +10,7 @@ from dataclasses import dataclass, fields
 from typing import Generic, List, Optional, Set, Type, TypeVar
 
 from src.core.module import Context, Module
+from src.toolbox.logger import configure_child_logging, get_logger
 
 from multiprocessing import Process as _Process
 
@@ -59,6 +60,10 @@ class Engine(_Process, ABC, Generic[T]):
         self._initial_context_keys: set[str] = {f.name for f in fields(context_type)}
         self._driver_registry: dict = driver_registry or {}
         self._driver_handles: dict = {}
+        #: Shared multiprocess log queue, set by orchestrator.launch_system
+        #: after construction (None = log straight to console, e.g. in tests).
+        self._log_queue = None
+        self.log = get_logger(type(self).__name__)
         self._validate_wiring()
 
     @abstractmethod
@@ -94,6 +99,8 @@ class Engine(_Process, ABC, Generic[T]):
         (never in __init__, which runs in the parent before fork/spawn).
         """
         self.active = True
+        configure_child_logging(self._log_queue)  # route this child's logs to the parent
+        self._log_pipeline()
         self._build_driver_handles()  # driver clients, before initialize() can use them
         self.initialize()
         for module in self._modules:
@@ -117,6 +124,20 @@ class Engine(_Process, ABC, Generic[T]):
         """Signal the engine to stop and wait for it to finish."""
         self.active = False
         self.join()
+
+    def _log_pipeline(self) -> None:
+        """Log the module -> inputs -> outputs table once at startup.
+
+        Derived from the modules' own declarations, so it can't go stale --
+        a free pipeline 'diagram' for anyone reading the logs.
+        """
+        if not self.log.isEnabledFor(20):  # logging.INFO
+            return
+        lines = [
+            f"  {m.name}: ({', '.join(m.get_inputs()) or '-'}) -> ({', '.join(m.get_outputs()) or '-'})"
+            for m in self._modules
+        ]
+        self.log.info("pipeline:\n%s", "\n".join(lines))
 
     # ------------------------------------------------------------------
     # Validation

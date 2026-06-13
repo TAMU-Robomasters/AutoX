@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Generic, List, Optional, TypeVar, Tuple
 
 from src.toolbox.globals import config
+from src.toolbox.logger import get_logger
 
 # TODO: see if I can check if the types are in the same order as the inputs and outputs, by checking the type
 
@@ -118,6 +119,9 @@ class Module(ABC, Generic[T]):
         self.ctx = context
         self._inputs = inputs
         self._outputs = outputs
+        #: Per-module logger (``autox.<module name>``); level/output are owned
+        #: by the engine's process-wide logging setup (src/toolbox/logger.py).
+        self.log = get_logger(name)
         self._mock_fn: Optional[Callable] = None
         self._real_fns: Optional[List[Callable]] = None
 
