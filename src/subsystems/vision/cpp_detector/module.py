@@ -36,11 +36,11 @@ if str(_REPO_ROOT) not in sys.path:
 
 import armor_panel_cpp  # noqa: E402
 
-from src.core.module import Context, Module, real  # noqa: E402
+from src.core.module import Module, real  # noqa: E402
 from src.subsystems.display import BLUE, display  # noqa: E402
 from src.toolbox.geometry_tools import BoundingBox  # noqa: E402
 from src.toolbox.globals import config  # noqa: E402
-from src.types.autoaim import ArmorPanel  # noqa: E402
+from src.types.autoaim import ArmorPanel, FullStateAutoAimContext  # noqa: E402
 
 _CAMERAMODEL_PATH = (
     _REPO_ROOT / "assets/intrinsics/mrcal_1280x720/opencv12.cameramodel"
@@ -98,7 +98,8 @@ def _cpp_panels_to_armor_panels(cpp_panels) -> List[ArmorPanel]:
         corners = np.asarray(panel.corners, dtype=np.float32)
         contour = corners.reshape(-1, 1, 2).astype(np.int32)
 
-        display.windows["main"].add_contour(contour, color=BLUE)
+        if config.log.display_live_frames:
+            display.windows["main"].add_contour(contour, color=BLUE)
         panels.append(
             ArmorPanel(
                 icon=panel.id,
@@ -115,10 +116,10 @@ def _cpp_panels_to_armor_panels(cpp_panels) -> List[ArmorPanel]:
     return panels
 
 
-class CppDetectorModule(Module[Context]):
+class CppDetectorModule(Module[FullStateAutoAimContext]):
     """Detects armor panels via the compiled ``armor_panel_cpp`` pipeline."""
 
-    def __init__(self, context: Context):
+    def __init__(self, context: FullStateAutoAimContext):
         super().__init__(
             name="cpp_detector",
             context=context,
@@ -137,6 +138,12 @@ class CppDetectorModule(Module[Context]):
         # be opened from inside the child or get_frame() blocks forever.
         self._started = False
 
+        # Non-blocking (detect_latest) bookkeeping: last C++ frame seq we
+        # processed, and whether the most recent detect_latest() saw a new frame.
+        self._last_seq = -1
+        self.frame_is_new = False
+        self.frame_seq = -1
+
     def _ensure_started(self) -> None:
         """Open the camera and push intrinsics into C++ (child-process side)."""
         if self._started:
@@ -147,6 +154,23 @@ class CppDetectorModule(Module[Context]):
         cam_matrix, dist = _load_opencv12_intrinsics(_CAMERAMODEL_PATH)
         armor_panel_cpp.set_intrinsics(cam_matrix, dist)
         armor_panel_cpp.set_icon_tolerance(float(config.classical.icon_tolerance))
+
+        # Push the light-pairing tunables from info.yaml's `classical:` block so
+        # the C++ pairing uses the same values as the Python detector. The
+        # height-ratio band is a [lo, hi] list in config.
+        c = config.classical
+        lo, hi = c.height_ratio_thresh
+        armor_panel_cpp.set_pairing_params(
+            angle_diff_multiplier=float(c.angle_diff_multiplier),
+            misalignment_multiplier=float(c.misalignment_multiplier),
+            expected_distance_multiplier=float(c.expected_distance_multiplier),
+            height_ratio_multiplier=float(c.height_ratio_multiplier),
+            angle_diff_thresh=float(c.angle_diff_thresh),
+            misalignment_thresh=float(c.misalignment_thresh),
+            height_ratio_thresh_lo=float(lo),
+            height_ratio_thresh_hi=float(hi),
+            score_thresh=float(c.score_thresh),
+        )
 
         armor_panel_cpp.video_source_init(
             device_id=int(config.hardware.camera_index),
@@ -169,11 +193,59 @@ class CppDetectorModule(Module[Context]):
         cpp_panels = armor_panel_cpp.detect_panels(self._enemy_color)
 
         # detect_panels consumed a frame internally; pull a copy for display.
-        frame = armor_panel_cpp.get_last_frame()
-        if frame is not None:
-            display.windows["main"].img = frame
+        # get_last_frame() does a full-frame memcpy out of C++, so only pay it
+        # when we're actually showing windows.
+        if config.log.display_live_frames:
+            frame = armor_panel_cpp.get_last_frame()
+            if frame is not None:
+                display.windows["main"].img = frame
 
         if not cpp_panels:
             return None
 
         return _cpp_panels_to_armor_panels(cpp_panels)
+
+    def detect_latest(self) -> bool:
+        """Non-blocking detection on the newest frame; the cpp-camera engine path.
+
+        Unlike ``run()`` (which blocks waiting for a frame), this grabs the
+        newest frame the C++ reader thread has and only runs the pipeline if its
+        sequence number advanced since the last call. This lets the engine loop
+        run faster than the camera and predict-only between frames (same role the
+        ``FrameReader.latest()`` + ``seq`` dedup plays for the Python detector).
+
+        Side effects: on a new frame, writes ``ctx.panels`` (a list of
+        :class:`ArmorPanel`, or ``None``) and stamps ``ctx.frame_ts``.
+
+        Returns:
+            ``True`` iff a new frame was processed (``ctx.panels`` updated).
+            ``False`` means no new frame arrived -> the engine should coast.
+        """
+        self._ensure_started()
+
+        # Approximate capture time on the same clock the engine uses for
+        # frame_delay_ms. The newest frame is at most ~one camera period old, so
+        # reading the clock just before processing is a close (and same-clock)
+        # stand-in for the missing per-frame C++ timestamp.
+        now = time.perf_counter()
+        seq, is_new, cpp_panels = armor_panel_cpp.detect_panels_latest(
+            self._enemy_color, self._last_seq
+        )
+        self.frame_seq = seq
+        if not is_new:
+            self.frame_is_new = False
+            return False
+
+        self._last_seq = seq
+        self.frame_is_new = True
+        self.ctx.frame_ts = now
+
+        if config.log.display_live_frames:
+            frame = armor_panel_cpp.get_last_frame()
+            if frame is not None:
+                display.windows["main"].img = frame
+
+        self.ctx.panels = (
+            _cpp_panels_to_armor_panels(cpp_panels) if cpp_panels else None
+        )
+        return True

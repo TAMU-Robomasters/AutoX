@@ -51,6 +51,16 @@ public:
         return out;
     }
 
+    // Non-blocking newest-frame accessor (mirrors Python's FrameReader.latest()):
+    // returns a copy of the most recent frame plus a monotonic sequence number,
+    // WITHOUT consuming it. The caller dedups on seq_ to detect a new frame.
+    // Returns an empty Mat (seq 0) until the first frame has arrived.
+    std::pair<cv::Mat, uint64_t> read_latest() {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (latest_.empty()) return {cv::Mat(), seq_};
+        return {latest_.clone(), seq_};
+    }
+
 private:
     void reader_loop() {
         while (!stop_.load()) {
@@ -64,6 +74,7 @@ private:
                 std::lock_guard<std::mutex> lock(mu_);
                 latest_ = std::move(frame);
                 has_frame_ = true;
+                ++seq_;
             }
             cv_.notify_one();
         }
@@ -74,6 +85,7 @@ private:
     std::condition_variable cv_;
     cv::Mat latest_;
     bool has_frame_ = false;
+    uint64_t seq_ = 0;  // monotonic counter, ++ on every captured frame
     std::thread thread_;
     std::atomic<bool> stop_{false};
 };
@@ -109,6 +121,17 @@ cv::Mat get_frame() {
         last_frame_storage = capture->read();
     }
     return last_frame_storage;
+}
+
+std::pair<cv::Mat, uint64_t> read_latest_frame() {
+    if (!capture) {
+        throw std::runtime_error("video_source_init has not been called");
+    }
+    std::pair<cv::Mat, uint64_t> result = capture->read_latest();
+    if (!result.first.empty()) {
+        last_frame_storage = result.first;  // keep newest for last_frame()/display
+    }
+    return result;
 }
 
 void set_reuse_stale_frame(bool enabled) {

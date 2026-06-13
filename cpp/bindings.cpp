@@ -140,8 +140,29 @@ PYBIND11_MODULE(armor_panel_cpp, m) {
     m.def("detect_panels", &detect_panels,
           "Run the detection pipeline and return a list of Panels.");
 
+    m.def("detect_panels_latest",
+          [](char enemy_color, long last_seq) {
+              DetectResult r = detect_panels_latest(enemy_color, last_seq);
+              return py::make_tuple(r.seq, r.is_new, std::move(r.panels));
+          },
+          py::arg("enemy_color"), py::arg("last_seq"),
+          "Non-blocking detection on the newest frame. Returns (seq, is_new, panels): "
+          "is_new is False (panels empty) when no frame newer than last_seq is available.");
+
     m.def("pair_lights", &pair_lights,
           "Pair lights into armor candidates.");
+
+    m.def("set_pairing_params", &set_pairing_params,
+          py::arg("angle_diff_multiplier"),
+          py::arg("misalignment_multiplier"),
+          py::arg("expected_distance_multiplier"),
+          py::arg("height_ratio_multiplier"),
+          py::arg("angle_diff_thresh"),
+          py::arg("misalignment_thresh"),
+          py::arg("height_ratio_thresh_lo"),
+          py::arg("height_ratio_thresh_hi"),
+          py::arg("score_thresh"),
+          "Set light-pairing tunables (from info.yaml's classical: block).");
 
     m.def("contours_to_panels", &contours_to_panels_py,
           "Convert OpenCV-Python contours (list of (N,1,2) int32 arrays) to Panel objects.");

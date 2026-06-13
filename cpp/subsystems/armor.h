@@ -23,4 +23,15 @@ std::vector<std::pair<Light, Light>> pair_lights(const std::vector<Light>& light
 std::vector<Light> detect_lights(const std::vector<std::vector<cv::Point>>& contours);
 std::vector<Panel> define_panels (std::vector<std::pair<Light, Light>> light_pairs);
 
+/* Push light-pairing tunables from info.yaml's `classical:` block. */
+void set_pairing_params(float angle_diff_multiplier,
+                        float misalignment_multiplier,
+                        float expected_distance_multiplier,
+                        float height_ratio_multiplier,
+                        float angle_diff_thresh,
+                        float misalignment_thresh,
+                        float height_ratio_thresh_lo,
+                        float height_ratio_thresh_hi,
+                        float score_thresh);
+
 #endif /* ARMOR_H */

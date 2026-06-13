@@ -67,6 +67,7 @@ import cv2 as cv
 import numpy as np
 
 from src.core.engine import Engine
+from src.core.module import Module
 from src.drivers.mcu import McuDriver
 from src.drivers.video_stream import CameraDriver
 from src.subsystems.ballistics.full_state_continuous_fire import (
@@ -125,7 +126,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self.ctx = FullStateAutoAimContext()
 
         est_cfg = config.estimation
-        self.detection = ClassicalDetectorModule(self.ctx)
+        self.detection = self._build_detection_module()
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
         self.panel_tracking = PanelTrackingModule(self.ctx)
@@ -159,6 +160,16 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             driver_registry=driver_registry,
         )
 
+    def _build_detection_module(self) -> Module:
+        """Build the detection module (factory hook for the camera source).
+
+        The Python detector reads ``ctx.frame`` (fed by the shared
+        ``CameraDriver``). Subclasses override this to swap in a different
+        detector -- e.g. ``FullStateAutoAimEngineCpp`` returns a
+        ``CppDetectorModule`` that owns the camera itself.
+        """
+        return ClassicalDetectorModule(self.ctx)
+
     # ------------------------------------------------------------------
     # Initialization (child process)
     # ------------------------------------------------------------------
@@ -185,8 +196,11 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self.cv_state: int = CVState.NO_TARGET.value
 
         # Frames come from the shared CameraDriver via this FrameReader handle.
-        self.frames = self.driver("frames")
-        self._last_seq = -1
+        # Subclasses whose detector owns the camera (e.g. the cpp engine) declare
+        # no "frames" driver -- skip the handle there; they pace on the detector.
+        if "frames" in type(self).drivers:
+            self.frames = self.driver("frames")
+            self._last_seq = -1
 
         # Two separate FPS tallies logged at INFO: ticks with a fresh target
         # observation vs predict/re-send ticks with none. (_prev_target_robot,
@@ -499,11 +513,26 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         between frames.
         """
         start = time.perf_counter()
+        self._begin_tick(start)
+        self._ingest_frame()
+        self._account_and_dispatch()
+        self._pace(start)
+
+    def _begin_tick(self, start: float) -> None:
+        """Reset the per-tick context state at the top of every loop iteration."""
         self.ctx.start_loop_time = start
         self.ctx.solution = None  # never reuse a stale solution
         self.alignment_time_ms = 255
         self.cv_state = CVState.NO_TARGET.value
 
+    def _ingest_frame(self) -> None:
+        """Pull the newest camera frame (shared CameraDriver) and run vision on it.
+
+        Source-specific hook: ``FullStateAutoAimEngineCpp`` overrides this to
+        pull from its cpp-owned camera instead. On a fresh frame, runs the
+        vision + targeting pipeline; otherwise coasts (predict-only, or lose the
+        target on timeout).
+        """
         frame = self.frames.latest()
         if frame is not None and frame.seq != self._last_seq:
             self._last_seq = frame.seq
@@ -516,6 +545,8 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             if self.target_timeout.is_expired:
                 self._on_target_lost()
 
+    def _account_and_dispatch(self) -> None:
+        """FPS tallies, then dispatch to the active state's pipeline + publish."""
         # Two FPS tallies: fresh target observations vs predict/re-send ticks.
         if self.ctx.new_observation:
             self._obs_count += 1
@@ -526,8 +557,6 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         # Dispatch to the active state's pipeline (every tick a target exists).
         # ------------------------------------------------------------------
         if self.ctx.target_robot is not None:
-            # self.log.debug(f"panels: {self.ctx.target_robot.panels}")
-    
             name = self.ctx.target_robot.name
             state = self._state_for(name)
             if state == AimState.PARAMETER_ESTIMATION:
@@ -539,11 +568,18 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             self.log.debug("estimate before state pipeline: %s", self.ctx.estimate)
             self._publish_solution(active_cv_state)
 
-        self._pace(start)
-
     def _process_frame(self) -> None:
-        """Vision + sticky targeting + turret-frame transform for a fresh frame."""
+        """Run the Python detector, then the shared post-detection pipeline."""
         self.detection.run()
+        self._process_detected_panels()
+
+    def _process_detected_panels(self) -> None:
+        """Sticky targeting + turret-frame transform for the freshly-set panels.
+
+        Reads ``ctx.panels`` (already populated by whichever detector ran) and
+        does the source-independent work: drop non-finite poses, classify,
+        sticky-select the target, and transform poses into the turret frame.
+        """
         panels = self.ctx.panels
         if panels is not None:
             # Drop detections with a non-finite pose. A single NaN tvec/rvec from

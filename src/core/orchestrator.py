@@ -1,7 +1,9 @@
 """Orchestrator: creates engines, wires shared queues, and starts everything."""
 
-from src.engines.full_state_autoaim import FullStateAutoAimEngine
-from src.toolbox.logger import start_log_listener, stop_log_listener
+from src.toolbox.globals import config
+from src.toolbox.logger import get_logger, start_log_listener, stop_log_listener
+
+log = get_logger("orchestrator")
 
 
 def launch_system(engine_classes: list) -> list:
@@ -53,8 +55,23 @@ def start_engines() -> None:
     NOTE: the old angular-velocity plot (start_plot_engine + a shared Queue) is
     dropped here for now — launch_system doesn't thread the plot Queue through.
     Re-add later if needed (the engine already accepts an optional `queue`).
+
+    The detection backend is chosen by ``config.vision_backend`` (``info.yaml``):
+    ``cpp`` runs the C++ detector that owns the camera; ``python`` (default) runs
+    the Python detector + shared CameraDriver.
     """
-    processes = launch_system([FullStateAutoAimEngine])
+    from src.engines.full_state_autoaim import FullStateAutoAimEngine
+
+    backend = str(getattr(config, "vision_backend", "python")).lower()
+    engine_cls: type[FullStateAutoAimEngine]
+    if backend == "cpp":
+        from src.engines.full_state_autoaim_cpp import FullStateAutoAimEngineCpp
+
+        engine_cls = FullStateAutoAimEngineCpp
+    else:
+        engine_cls = FullStateAutoAimEngine
+    log.info("starting production engine: %s (vision_backend=%s)", engine_cls.__name__, backend)
+    processes = launch_system([engine_cls])
     try:
         for p in processes:
             p.join()

@@ -59,15 +59,22 @@
                 # Changes are EPHEMERAL (runtime only) — copy good values back
                 # into this block by hand. Leave false in production (no window,
                 # zero overhead). See classical_detector/tuning.py.
-                live_tuning: true
+                live_tuning: false
 
                 # icon detection
                 icon_adaptive_thresh: [ 101, -5 ]
-                icon_tolerance: 1000
-                show_icon_filters: true
+                icon_tolerance: 80
+                show_icon_filters: false
             
             our_team_color: 'red' # 'red' or 'blue'
             filter_team_color: true
+            # Which detection backend the production engine uses:
+            #   'python' -> FullStateAutoAimEngine    (ClassicalDetectorModule +
+            #               shared ffmpeg CameraDriver). The fallback path.
+            #   'cpp'    -> FullStateAutoAimEngineCpp  (armor_panel_cpp owns the
+            #               camera; Python never opens it). Same estimator/state
+            #               machine, detection runs in C++.
+            vision_backend: cpp
             mode: development
             hardware:
                 camera: usb_cam # "realsense" or "zed" or "usb_cam" 
@@ -114,7 +121,7 @@
                 testing:
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
-                disable_all_logging: true # kill switch: logging.disable() everywhere (perf)
+                disable_all_logging: false # kill switch: logging.disable() everywhere (perf)
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.
