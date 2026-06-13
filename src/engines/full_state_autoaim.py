@@ -209,6 +209,11 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self._obs_count = 0
         self._no_obs_count = 0
         self._fps_window_start = time.perf_counter()
+        # Per-loop work time (excludes the loop_hz pacing sleep), summed over the
+        # fps window so _log_fps can report avg + max ms alongside the rates.
+        self._exec_work_s = 0.0
+        self._loop_time_sum = 0.0
+        self._loop_time_max = 0.0
 
     def _init_estimators(self) -> None:
         """Build the full-state KF and inject it + the initial radii guess."""
@@ -516,6 +521,9 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self._begin_tick(start)
         self._ingest_frame()
         self._account_and_dispatch()
+        # Work done this tick before we sleep to honor the loop_hz cap. update()
+        # adds its own work (send + display) to get the full per-loop time.
+        self._exec_work_s = time.perf_counter() - start
         self._pace(start)
 
     def _begin_tick(self, start: float) -> None:
@@ -651,6 +659,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
 
     def update(self) -> None:
         """Send the latest solution to the MCU and service the display."""
+        update_start = time.perf_counter()
         self.log.debug(
             "to embedded: pitch=%.2fdeg yaw=%.2fdeg align=%dms cv_state=%d",
             np.rad2deg(self._last_pitch),
@@ -664,22 +673,34 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             time_until_fire=self.alignment_time_ms,
             cv_state=self.cv_state,
         )
-        self._log_fps()
         if config.log.display_live_frames:
             display.show_windows()
+        # Full per-loop work = execute() work + this update()'s work (the loop_hz
+        # sleep is excluded). Summed for the once-per-second avg/max in _log_fps.
+        loop_s = self._exec_work_s + (time.perf_counter() - update_start)
+        self._loop_time_sum += loop_s
+        self._loop_time_max = max(self._loop_time_max, loop_s)
+        self._log_fps()
 
     def _log_fps(self) -> None:
-        """Log observation vs no-observation FPS once per ~1s window."""
+        """Log loop rate + per-loop work time once per ~1s window."""
         elapsed = time.perf_counter() - self._fps_window_start
         if elapsed < 1.0:
             return
+        ticks = self._obs_count + self._no_obs_count
+        avg_loop_ms = (self._loop_time_sum / ticks * 1000) if ticks else 0.0
         self.log.info(
-            "fps: obs=%.0f (new target observations), no_obs=%.0f (predict/re-send)",
+            "loop: %.0f hz total (obs=%.0f, no_obs=%.0f) | per-loop %.2f ms avg, %.2f ms max",
+            ticks / elapsed,
             self._obs_count / elapsed,
             self._no_obs_count / elapsed,
+            avg_loop_ms,
+            self._loop_time_max * 1000,
         )
         self._obs_count = 0
         self._no_obs_count = 0
+        self._loop_time_sum = 0.0
+        self._loop_time_max = 0.0
         self._fps_window_start = time.perf_counter()
 
 

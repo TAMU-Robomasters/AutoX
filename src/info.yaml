@@ -131,7 +131,7 @@
                 max_file_mb: 20
                 backup_count: 3
                 save_frame_to_file: false
-                display_live_frames: true
+                display_live_frames: false
                 save_depth: false
                 estimated_framerate: 40 # based on yolov8 and recent tests. Not the worst thing if this number is wrong (even very wrong)
                 save_rate: 20 # once every __ frames
