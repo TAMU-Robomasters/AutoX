@@ -48,9 +48,9 @@ from src.types.autoaim import (
 def _default_full_state_kf(r: float = 23.5) -> FullStateKF:
     """Create a FullStateKF with the same hyperparameters as ``_default_particle_filter``."""
     position_kf = PositionKF(
-        r_pos=30.0,
-        q_vx=100.0,
-        q_vy=100.0,
+        r_pos=20.0,
+        q_vx=500.0,
+        q_vy=500.0,
         r=r,
         init_std=(100.0, 100.0, 10.0, 10.0),
     )

@@ -35,8 +35,8 @@ def _default_panel_kf() -> PositionKF:
     """Constant-velocity KF over the panel itself (r=0: no back-projection)."""
     return PositionKF(
         r_pos=3.0,        # cm, single-frame panel position noise
-        q_vx=100.0,
-        q_vy=100.0,
+        q_vx=500.0,
+        q_vy=500.0,
         r=0.0,            # back_project(x, y, yaw, 0) == (x, y)
         init_std=(10.0, 10.0, 50.0, 50.0),
     )

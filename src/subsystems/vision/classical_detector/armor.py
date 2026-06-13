@@ -6,6 +6,7 @@ import cv2 as cv
 import numpy as np
 
 from src.subsystems.display import display
+from src.subsystems.vision.classical_detector import tuning
 from src.toolbox.globals import config
 
 armor_height_ratio = 12.5 / 5.2
@@ -117,25 +118,26 @@ def pairing(b_boxes):
     avg_heights = (heights1 + heights2) / 2
     expected_distances = np.abs((avg_heights / armor_width_ration) - distances)
 
+    # Score multipliers + valid-mask thresholds. Static from config, or read
+    # live from the trackbar window when config.classical.live_tuning is on
+    # (see tuning.pairing_params).
+    p = tuning.pairing_params()
+
     # Calculate scores
     scores = (
-        angle_diffs * config.classical.angle_diff_multiplier
-        + misalignment_angles * config.classical.misalignment_multiplier
-        + expected_distances * config.classical.expected_distance_multiplier
-        + height_ratios * config.classical.height_ratio_multiplier
+        angle_diffs * p.angle_diff_multiplier
+        + misalignment_angles * p.misalignment_multiplier
+        + expected_distances * p.expected_distance_multiplier
+        + height_ratios * p.height_ratio_multiplier
     )
 
     # Create mask for valid pairs
     valid_mask = (
-        (angle_diffs < config.classical.angle_diff_thresh)  # Angle difference threshold
-        & (
-            misalignment_angles < config.classical.misalignment_thresh
-        )  # Misalignment threshold
-        & (height_ratios > config.classical.height_ratio_thresh[0])
-        & (
-            height_ratios < config.classical.height_ratio_thresh[1]
-        )  # Height ratio threshold
-        & (scores < config.classical.score_thresh)  # Score threshold
+        (angle_diffs < p.angle_diff_thresh)  # Angle difference threshold
+        & (misalignment_angles < p.misalignment_thresh)  # Misalignment threshold
+        & (height_ratios > p.height_ratio_thresh[0])
+        & (height_ratios < p.height_ratio_thresh[1])  # Height ratio threshold
+        & (scores < p.score_thresh)  # Score threshold
     )
 
     # Set invalid pairs (same light) to infinite score

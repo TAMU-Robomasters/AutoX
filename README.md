@@ -63,7 +63,40 @@ Notes:
 This handles all main logic that runs on the Jetson.
 
 ## How does the code work?
-TODO
+
+See `CLAUDE.md` for the full architecture (engines / modules / drivers). The short
+operator's view of the auto-aim engine (`src/engines/full_state_autoaim.py`):
+
+**It learns each enemy robot's geometry once, then reuses it.** The first time it locks
+onto a robot it runs in `PARAMETER_ESTIMATION`: it aims at the closest single armor panel
+while measuring the robot's two panel-orbit radii and the height difference between the
+panel pairs. Once those converge it saves them and switches to full-state tracking
+(predicting the spinning robot's whole pose and leading the shot). A robot it has already
+learned boots straight into tracking on the next run.
+
+**Learned constants live in a JSON file** (path: `(path_to) robot_constants` in
+`src/info.yaml`, default `local_data.ignore/robot_constants.json` — gitignored, persists
+across restarts), keyed by robot name. To **force it to re-learn from scratch** (e.g. a new
+opponent between matches), set `estimation.force_reestimation: true` in `info.yaml` (or just
+delete the file). Other knobs under `estimation:` control how quickly it decides the
+constants have converged — most important is `min_constant_updates` (the minimum number of
+two-panel measurements it must see before trusting/saving the constants; a backstop so one
+lucky frame can't trigger a premature save).
+
+**Logging.** Code uses stdlib `logging`, routed through one queue so all the engine/driver
+processes share a single ordered stream. Control it in the `log:` block of `info.yaml`:
+
+```yaml
+log:
+    level: INFO          # DEBUG for verbose, WARNING to quiet down
+    levels:              # per-module overrides, e.g. debug one module only:
+        panel_tracking: DEBUG
+    to_file: false       # also write a rotating file at (path_to) log_file
+    disable_all_logging: false   # kill switch for max performance
+```
+
+The auto-aim engine logs every state transition at INFO, so watching the console tells you
+when it's learning vs tracking and when it saves a robot's constants.
 
 # At the competition
 TODO
