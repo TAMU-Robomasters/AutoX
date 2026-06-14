@@ -157,16 +157,26 @@ The last profiles you selected are remembered in an auto-generated, gitignored
 `src/local_data.ignore.yaml`, so you don't retype them every run. If config seems
 "stuck," that file is the first place to look.
 
+More detail — the file layout, single-value overrides, and how to add to the local
+file: {doc}`config`.
+
 ## How the pieces fit together
 
-```
-Driver (camera) ──frames──► Engine ───────────────────────────────┐
-                              owns one Context (the clipboard)     │
-                              runs Modules in order each loop:     │
-                                Module A: () -> panels             │
-                                Module B: panels -> estimate       │
-                                Module C: estimate -> solution     │
-Driver (mcu)  ◄──solution──── update()                            ◄┘
+```mermaid
+flowchart LR
+    cam[Driver: camera]
+    mcu[Driver: mcu]
+
+    subgraph engine [Engine — owns one Context, loops each frame]
+        direction TB
+        a["Module A: () -> panels"]
+        b["Module B: panels -> estimate"]
+        c["Module C: estimate -> solution"]
+        a --> b --> c
+    end
+
+    cam -- frames --> engine
+    engine -- solution --> mcu
 ```
 
 An engine without drivers (like the tutorial's) you can construct and `.start()`
@@ -238,6 +248,7 @@ purpose. Treat the bullets above as the map of where it's headed.
 
 - {doc}`tutorial` — build a tiny two-module engine yourself (~15 min).
 - {doc}`engine`, {doc}`module`, {doc}`context` — deeper dives on each noun.
+- {doc}`config` — `info.yaml`, profiles, and the local override file.
 - {doc}`full_state_autoaim_engine` — how the production engine and its states work.
 - {doc}`logging` — the multiprocess log system.
 - {doc}`api` — auto-generated reference for every package.

@@ -55,6 +55,39 @@ nothing about states. The states are in the `AimState` enum:
     module is chosen by spin rate (see below).
 ```
 
+### State diagram
+
+T6 isn't drawn as an edge below — it can fire from *any* state: when the targeted
+robot *name* changes, the engine swaps in that robot's saved state, and a robot in
+`FULL_STATE_TRACKING` demotes to `FULL_STATE_INIT`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PARAMETER_ESTIMATION: no saved constants
+    [*] --> FULL_STATE_INIT: constants on disk (loaded at boot)
+
+    state "PARAMETER_ESTIMATION" as PE
+    state "FULL_STATE_INIT" as INIT
+    state "FULL_STATE_TRACKING" as TRACK
+
+    PE: PARAMETER_ESTIMATION
+    PE: learn radii + height delta
+    PE: aim — single-panel
+    INIT: FULL_STATE_INIT
+    INIT: have geometry, parity not anchored
+    INIT: aim — single-panel
+    TRACK: FULL_STATE_TRACKING
+    TRACK: full-state KF, aim at aim_z
+    TRACK: |omega| <= thresh -> continuous fire
+    TRACK: |omega| > thresh  -> shot timing
+
+    PE --> INIT: T1 — both learning KFs converged\n(canonicalize + save constants)
+    INIT --> TRACK: T2 — two ~90deg-apart panels\n(anchor parity, reseed KF)
+    TRACK --> INIT: T3 — target lost
+    PE --> PE: T5 — target lost (keep geometry)
+    INIT --> INIT: T4 — target lost (keep geometry)
+```
+
 ### Transitions (summary)
 
 - **T1** `PARAMETER_ESTIMATION → FULL_STATE_INIT`: both learning KFs converged

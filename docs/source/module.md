@@ -2,199 +2,106 @@
 
 ## What a module is
 
-A module is the smallest reusable unit of work in AutoX.
+A module is the smallest unit of work in AutoX. It's a subclass of `Module[T]`
+(base in `src/core/module.py`) that:
 
-At the code level, a module is a subclass of `Module[T]` that:
+- reads named values from a shared {doc}`context` (`inputs`),
+- does one focused piece of computation, and
+- writes named results back to that context (`outputs`).
 
-- reads named values from a shared `Context`
-- performs one focused piece of logic
-- writes named results back into that same `Context`
-
-The base implementation in `src/core/module.py` makes that contract explicit:
-
-- each module declares `inputs`
-- each module declares `outputs`
-- the engine only calls `module.run()`
-
-That means the engine does not need to know how a module works internally. It only needs to know what data the module consumes and what data it produces.
-
-## Why this abstraction exists
-
-This layer exists to solve a few problems that show up constantly in robotics and vision code.
-
-### 1. Keep algorithmic steps small and swappable
-
-The vision stack is naturally a sequence of distinct steps:
-
-- acquire data
-- detect candidates
-- estimate geometry and kinematic state (i.e. velocity, position, angular velocity)
-- select a target
-- communicate a result to MCU or devboard
-
-Instead of putting all of that into one giant loop, AutoX breaks those steps into modules. For example:
-
-- `ClassicalDetectorModule` is responsible for producing `panels`
-- `SelectingWith3DModule` consumes `panels` and produces `target_panel`
-
-That makes it easy to:
-
-- replace one algorithm without rewriting the whole engine
-- compare alternate implementations
-- reuse one step in multiple engines
-- reason about failures at a smaller scope
-
-### 2. Make data dependencies explicit
-
-Modules declare their dependencies as strings in `inputs` and `outputs`. That may feel simple, but it gives the framework a clear, inspectable contract.
-
-For example, the selection module says it needs `panels` and will output `target_panel`. The detector says it outputs `panels`. That makes the intended flow obvious even before reading the algorithm details.
-
-The shared context type, such as `AutoAimContext`, acts like the schema for the pipeline. It tells you which fields are expected to exist in that engine's world.
-
-### 3. Support mock and real behavior with one public API
-
-One of the design goals of the repo is to run mock behavior by changing configuration instead of rewriting call sites.
-
-The module decorators support that directly:
-
-- `@real(...)` marks the hardware-backed or production implementation
-- `@mock` marks the simulated implementation
-
-The selection happens inside the base class, based on `config.mock.enable` from `info.yaml`. Because engines only call `module.run()`, the caller does not change when switching between real and mock behavior.
-
-This is especially useful for:
-
-- laptop development without hardware
-- demos that need deterministic behavior
-- in the future a way to determine modules based on the hardware profile of the device
-
-### 4. Keep most logic pure-ish even when the system is not
-
-Robotics systems always have side effects: cameras, IPC, serial, display windows, device drivers, and timing constraints. Modules push the codebase toward a cleaner shape by making each step look like:
-
-`context in -> compute -> context out`
-
-Even when a module touches external systems, it still exposes a small contract to the rest of the framework.
-
-### 5. Allow reuse through remapping
-
-The base class also provides `remap_inputs()` and `remap_outputs()`. That is a hint about the intended design: a module should be reusable in more than one pipeline or context layout without rewriting the implementation itself.
-
-## How a module works
-
-Every module subclasses `Module[T]`, where `T` is a `Context` type.
-
-Typical structure:
+The engine only ever calls `module.run()`. It doesn't know how the module works
+internally — only what fields it consumes and produces. `run()` pulls the declared
+inputs off the context by name, calls the selected implementation, and writes the
+returned value(s) back to the declared output fields.
 
 ```python
 class ExampleModule(Module[SomeContext]):
-	def __init__(self, context: SomeContext):
-		super().__init__(
-			name="ExampleModule",
-			context=context,
-			inputs=["some_input"],
-			outputs=["some_output"],
-		)
+    def __init__(self, context: SomeContext):
+        super().__init__(
+            name="ExampleModule",
+            context=context,
+            inputs=["some_input"],
+            outputs=["some_output"],
+        )
 
-	@real()
-	def _run_real(self, some_input):
-		return transform(some_input)
+    @real()
+    def _run_real(self, some_input):
+        return transform(some_input)
 ```
 
-At runtime:
+## Why split work into modules
 
-1. `run()` is called
-2. the base class selects the registered `@real` or `@mock` method
-3. declared inputs are pulled from the context by name
-4. the decorated method is executed
-5. returned values are written back to the declared output fields
+The vision/auto-aim stack is naturally a sequence of stages — detect, classify,
+estimate state, pick a target, solve ballistics, talk to the MCU. Breaking those
+into modules means each stage can be swapped, reused, or tested on its own without
+touching the engine loop around it. The chain in the production engine, for
+example, runs roughly:
 
-This means most module authors only need to care about the algorithm itself.
+- `CppDetectorModule` (or `ClassicalDetectorModule`) — `inputs=[]`,
+  `outputs=["panels"]`. An entry-point stage: it grabs a frame and produces
+  detected armor panels.
+- `RobotClassificationModule` — consumes `panels`, tags each with which robot it
+  belongs to.
+- `TargetingModule` — picks the `target_robot`.
+- estimation + ballistics modules — turn the target into a kinematic `estimate`
+  and then a firing `solution`.
 
-## Real example: `ClassicalDetectorModule`
+Each stage exposes the same small contract (`context in → compute → context out`),
+even the ones that touch hardware or IPC internally.
 
-`ClassicalDetectorModule` is a good example of what this abstraction buys us.
+## The `@real` / `@mock` split
 
-It declares:
+Every module can carry two implementations:
 
-- `inputs=[]`
-- `outputs=["panels"]`
+- `@real(...)` — the production version (real camera/GPU/hardware).
+- `@mock` — a simulated version that returns canned data.
 
-That tells us it is an entry-point style module: it does not depend on earlier module outputs, and it populates the context with detections.
+The base class chooses which to run in `_select_run_method()`, based on the single
+config flag `config.mock.enable` (from `info.yaml`). When it's true, the `@mock`
+method runs; otherwise the first `@real` method runs. Because engines only call
+`module.run()`, **no call site changes** when you switch the whole system between
+real and mock — that's what lets the full pipeline run on a laptop with nothing
+plugged in.
 
-Its `@real(requires="camera")` implementation:
+```python
+class DetectorModule(Module[FullStateAutoAimContext]):
+    @real(requires="camera")
+    def _run_real(self):
+        ...                       # grab a frame, detect panels
+        return panels
 
-- grabs a frame from the video stream
-- runs classical image processing
-- pairs light bars into armor candidates
-- estimates geometry
-- returns a list of `ArmorPanel` objects
+    @mock
+    def _run_mock(self):
+        return [fake_panel()]     # deterministic, no hardware
+```
 
-That is a full vision stage, but the outside world only sees one simple contract: after running, `ctx.panels` is updated.
+```{note}
+`requires="camera"` is **recorded but not yet acted on**. Today
+`_select_run_method` ignores it and always picks the first `@real` (there's a
+`TODO` on that line); the only switch actually honored is the global
+`config.mock.enable`. The intent — falling back to `@mock` per-module when a board
+lacks the required hardware — is described under "Current state vs. future
+direction" in {doc}`intro`.
+```
 
-## Real example: `SelectingWith3DModule`
+## Per-module setup: `Module.initialize()`
 
-`SelectingWith3DModule` shows the next stage in the chain.
+`Module.initialize()` is a one-time, per-module setup hook that runs **in the child
+process** — `Engine.run()` calls it for every module after the engine's own
+`initialize()`. Put anything that must not be created in the parent process
+(hardware handles, native libraries, IPC) here, **not** in `__init__` and not
+lazily on the first `run()`. See the multiprocessing rule in {doc}`intro` and
+{doc}`engine` for why.
 
-It declares:
+## Reuse: input/output remapping
 
-- `inputs=["panels"]`
-- `outputs=["target_panel"]`
+`remap_inputs()` and `remap_outputs()` let the same module class be wired into a
+context whose field names differ from the ones the module declares, so a stage can
+be reused across pipelines without editing its implementation.
 
-So its role is not detection. Its role is decision-making.
+## Tradeoffs
 
-Given a list of detected panels, it scores candidates using:
-
-- screen position
-- apparent size
-- distance from the previous target
-- estimated depth
-
-The rest of the engine does not need to know that scoring logic. It only knows that the module turns `panels` into `target_panel`.
-
-## Why modules use a shared context instead of passing many arguments
-
-The shared context solves a practical robotics problem: different stages often need access to overlapping state, and that state grows over time.
-
-Using a typed context makes it easier to:
-
-- add new intermediate values without changing every method signature
-- inspect the entire state passed through an engine
-- preserve previous-step results such as `prev_target_panel`
-- keep the pipeline shape readable
-
-`AutoAimContext` is a good example. It holds the evolving world state for the auto-aim engine, including detected panels and the currently selected target.
-
-## Design tradeoffs
-
-This abstraction is intentionally lightweight, but it does have tradeoffs.
-
-Benefits:
-
-- modular algorithm design
-- easier mocking
-- clearer data flow
-- better reuse
-- easier testing at the step level
-
-Costs:
-
-- field names are string-based, so typos matter
-- context updates are dynamic
-- modules still need discipline to stay focused and not grow too large
-
-Even with those tradeoffs, the abstraction makes sense for this repo because the project needs to switch between real and simulated behavior, and because the processing stack is naturally composed of small stages.
-
-## In short
-
-Modules exist so AutoX can treat each algorithmic step as a replaceable building block with a stable interface.
-
-That gives the project:
-
-- cleaner vision and control pipelines
-- easier mock-vs-real switching
-- reusable components across engines
-- a shared data model that can evolve as the robot software grows
-
-
+Field names are plain strings, so typos matter — but `_validate_wiring()` (see
+{doc}`context`) catches them at construction, before the loop runs. The upside is
+small, swappable stages with explicit data dependencies and an easy mock/real
+switch.

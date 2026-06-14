@@ -21,6 +21,7 @@ build a tiny engine yourself.
    engine
    module
    context
+   config
 
 .. toctree::
    :maxdepth: 2

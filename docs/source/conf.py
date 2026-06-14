@@ -26,8 +26,12 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
+    "sphinxcontrib.mermaid",
     "myst_parser",
 ]
+
+# Render ```mermaid fenced code blocks (and {mermaid} directives) as diagrams.
+myst_fence_as_directive = ["mermaid"]
 
 templates_path = ["_templates"]
 exclude_patterns = []
