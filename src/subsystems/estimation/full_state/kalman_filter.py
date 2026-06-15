@@ -472,6 +472,26 @@ class FullStateKF:
         z_pred = self.height_kf.extrapolate(dt)
         return np.concatenate([pos_pred, angle_pred, z_pred]).astype(np.float32)
 
+    @staticmethod
+    def predict_state(state: np.ndarray, dt: float) -> np.ndarray:
+        """Kinematically extrapolate a *state vector* ``dt`` seconds ahead.
+
+        Pure constant-velocity kinematics with no filter instance, covariance,
+        or side effects -- so ballistic modules can look ahead from a stored
+        estimate without holding a live estimator. Accepts either the 4-D
+        single-panel state ``[x, y, vx, vy]`` or the 7-D full state
+        ``[x, y, vx, vy, theta, omega, z]``: position advances by its velocity
+        and (7-D only) ``theta`` advances by ``omega``; velocities, ``omega``
+        and ``z`` are held constant. Returns a new float64 array (input is not
+        mutated).
+        """
+        out = np.array(state, dtype=np.float64).flatten()
+        out[0] += out[2] * dt  # x += vx*dt
+        out[1] += out[3] * dt  # y += vy*dt
+        if out.size >= 6:
+            out[4] += out[5] * dt  # theta += omega*dt
+        return out
+
 
 class FullStateEstimator(Protocol):
     """The estimator interface injected via ``set_estimator``.

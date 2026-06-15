@@ -22,6 +22,10 @@ public:
         cap_.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
         cap_.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
         cap_.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+        // Switch to manual exposure BEFORE setting the value -- V4L2 ignores
+        // CAP_PROP_EXPOSURE while auto-exposure is on. In OpenCV's V4L2 mapping
+        // 0.25 = manual mode, 0.75 = auto.
+        cap_.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25);
         cap_.set(cv::CAP_PROP_EXPOSURE, exposure);
         cap_.set(cv::CAP_PROP_FPS, 90);
         thread_ = std::thread(&BufferlessCapture::reader_loop, this);

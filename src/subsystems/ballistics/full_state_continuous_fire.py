@@ -32,7 +32,7 @@ from src.subsystems.ballistics.solver import (
     select_panel_at_time,
     solve_no_spin,
 )
-from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.full_state.kalman_filter import FullStateKF
 from src.toolbox.globals import config
 from src.types.autoaim import (
     BallisticSolution,
@@ -129,6 +129,9 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
     correct future position. Returns alignment_time_ms=255 as a dummy value;
     the embedded uses cv_state=CONTINUOUS_FIRE to select continuous fire mode
     rather than gating on alignment time.
+
+    State look-ahead is pure kinematics (``FullStateKF.predict_state``), so this
+    module holds no live estimator instance.
     """
 
     def __init__(self, context: FullStateAutoAimContext):
@@ -138,15 +141,10 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
             inputs=["estimate", "target_robot"],
             outputs=["solution"],
         )
-        self._estimator: Optional[FullStateEstimator] = None
-
         self._g: float = -(abs(BALLISTIC.gravity) / METERS_TO_CM)    # m/s^2, negative
         self._v: float = BALLISTIC.projectile_velocity / METERS_TO_CM  # m/s
         self._barrel: np.ndarray = np.asarray(BALLISTIC.barrel_offset, dtype=float)  # m
-
-    def set_estimator(self, estimator: FullStateEstimator) -> None:
-        """Inject the state estimator instance created by the engine."""
-        self._estimator = estimator
+        self._lookahead: float = float(BALLISTIC.prediction_lookahead)  # s
 
     @real()
     def _run_solve(
@@ -159,12 +157,11 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
             # Engine must not route here before parity anchoring sets aim_z.
             self.log.warning("estimate has no aim_z; cannot solve")
             return None
-        if self._estimator is None:
-            raise RuntimeError("State estimator not set. Engine must inject it in initialize().")
 
-        # Advance state to firing time (processing delay since the estimate).
-        time_since_estimate = time.perf_counter() - estimate.timestamp
-        pred = self._estimator.prediction(time_since_estimate)
+        # Advance state to firing time: processing delay since the estimate,
+        # plus the configured lead time (comms/servo latency compensation).
+        time_since_estimate = max(time.perf_counter() - estimate.timestamp, 0.0)
+        pred = FullStateKF.predict_state(estimate.value, time_since_estimate + self._lookahead)
 
         p_t = np.array(
             [pred[0] / METERS_TO_CM, pred[1] / METERS_TO_CM, estimate.aim_z / METERS_TO_CM]

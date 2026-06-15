@@ -74,7 +74,7 @@
             #   'cpp'    -> FullStateAutoAimEngineCpp  (armor_panel_cpp owns the
             #               camera; Python never opens it). Same estimator/state
             #               machine, detection runs in C++.
-            vision_backend: cpp
+            vision_backend: python
             mode: development
             hardware:
                 camera: usb_cam # "realsense" or "zed" or "usb_cam" 
@@ -125,7 +125,7 @@
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.
-                level: DEBUG              # root level for all autox.* loggers
+                level: INFO             # root level for all autox.* loggers
                 levels: {}                 # per-logger overrides, e.g. {panel_tracking: DEBUG}
                 to_file: false             # also write to (path_to) log_file (rotating)
                 max_file_mb: 20
@@ -167,6 +167,12 @@
                 max_time_of_flight: 1.5   # s
                 max_range: 800            # cm, horizontal
                 solver_tol: 1.0e-4        # LM residual tolerance (metres)
+                # Extra lead time (s) the single-panel and full-state
+                # continuous-fire modules extrapolate the estimate forward
+                # *on top of* the measured time-since-estimate, to compensate
+                # for comms/servo latency. 0 = no extra lead. Does NOT affect
+                # the KF update dt (that stays the true frame-to-frame interval).
+                prediction_lookahead: 0.05 # s
             communication:
                 timeout: 0.05
                 serial_baudrate: 460800
@@ -370,7 +376,7 @@
 
         DISPLAY:
             log:
-                display_live_frames: true
+                display_live_frames: True
         
         
         SHOWTIME:
@@ -379,7 +385,7 @@
                 disable_all_logging: true
                 disable_print: false
                 save_frame_to_file: false
-                display_live_frames: true
+                display_live_frames: false
 
         PERF:
             log:

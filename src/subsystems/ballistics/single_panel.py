@@ -25,6 +25,7 @@ import numpy as np
 
 from src.core.module import Module, mock, real
 from src.subsystems.ballistics.solver import mcu_yaw_from_xy, solve_no_spin
+from src.subsystems.estimation.full_state.kalman_filter import FullStateKF
 from src.toolbox.globals import config
 from src.types.autoaim import (
     BallisticSolution,
@@ -53,6 +54,7 @@ class SinglePanelBallisticModule(Module[FullStateAutoAimContext]):
         self._max_tof: float = float(BALLISTIC.max_time_of_flight)     # s
         self._max_range: float = float(BALLISTIC.max_range)            # cm
         self._tol: float = float(BALLISTIC.solver_tol)
+        self._lookahead: float = float(BALLISTIC.prediction_lookahead)  # s
 
     def _track_only(self, p_t_m: np.ndarray) -> BallisticSolution:
         """Straight-line aim with fire held (target out of solvable range)."""
@@ -70,10 +72,10 @@ class SinglePanelBallisticModule(Module[FullStateAutoAimContext]):
         if xy_estimate is None:
             return None
 
-        # Constant-velocity advance from estimate time to now (cm).
-        dt = max(time.perf_counter() - xy_estimate.timestamp, 0.0)
-        x, y, vx, vy = (float(v) for v in xy_estimate.value)
-        x, y = x + vx * dt, y + vy * dt
+        # Constant-velocity advance from estimate time to now, plus the
+        # configured lead time (latency compensation), in cm.
+        dt = max(time.perf_counter() - xy_estimate.timestamp, 0.0) + self._lookahead
+        x, y, vx, vy = (float(v) for v in FullStateKF.predict_state(xy_estimate.value, dt))
 
         p_t = np.array([x, y, xy_estimate.z]) / METERS_TO_CM  # metres
         v_t = np.array([vx, vy, 0.0]) / METERS_TO_CM

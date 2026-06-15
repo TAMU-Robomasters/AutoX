@@ -221,7 +221,8 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         estimator = _default_full_state_kf(r=guess)
         self.estimation.set_estimator(estimator)
         self.shot_timing.set_estimator(estimator)
-        self.continuous_fire.set_estimator(estimator)
+        # continuous_fire needs no estimator instance: it looks ahead via the
+        # pure-kinematics FullStateKF.predict_state static method.
         self.estimation.set_panel_radii(guess, guess)
 
     def _init_state_machine(self, store: JsonStore) -> None:
@@ -680,7 +681,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         loop_s = self._exec_work_s + (time.perf_counter() - update_start)
         self._loop_time_sum += loop_s
         self._loop_time_max = max(self._loop_time_max, loop_s)
-        self._log_fps()
+        # self._log_fps()
 
     def _log_fps(self) -> None:
         """Log loop rate + per-loop work time once per ~1s window."""

@@ -253,8 +253,11 @@ def _continuous_fire_module(estimate, predictor, monkeypatch, now):
     ctx = FullStateAutoAimContext(
         estimate=estimate, target_robot=EnemyRobot(name="standard")
     )
+    # predictor is unused now: the module looks ahead via the pure-kinematics
+    # FullStateKF.predict_state static method (no injected estimator). With the
+    # estimate timestamped at `now` and lookahead=0 the prediction is identity.
+    del predictor
     module = cf.FullStateContinuousFireModule(ctx)
-    module.set_estimator(predictor)
     return module, cf
 
 
