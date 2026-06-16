@@ -29,6 +29,9 @@
     (profiles):
         (default):
             debug: true
+            spinning_target:
+                radius_cm: 23.5 #measure rig later
+                omega_rpm: 10   # known constant spin rate
             classical:
                 cam_width: 1280
                 cam_height: 720

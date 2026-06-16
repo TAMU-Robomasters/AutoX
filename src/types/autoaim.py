@@ -170,3 +170,27 @@ class ParticleFilterAutoAimContext(Context):
 
     frame_ts: Optional[float] = None
     new_observation: bool = False
+
+
+@dataclass
+class EkfAutoAimContext(Context):
+    """Context for the single, fixed-radius, constant-rate spinning-target pipeline.
+
+    Drops classification/targeting (single target) and the legacy radii field.
+    """
+
+    start_loop_time: Optional[float] = None
+
+    frame: Optional[np.ndarray] = None
+    frame_ts: Optional[float] = None
+
+    # Detection stage
+    panels: Optional[List[ArmorPanel]] = None
+    # True once panels have been transformed into the turret frame this loop.
+    new_observation: bool = False
+
+    # Estimation stage
+    estimate: Optional[RobotStateEstimate] = None
+
+    # Ballistic stage
+    solution: Optional[BallisticSolution] = None
