@@ -154,6 +154,9 @@
                 # barrel_offset: [0.0, 0.0, 0.0]  # [bx, by, bz] barrel tip offset in metres
                 barrel_offset: [0.0325, 0.150, 0.0]
              # realsense
+                feeder_delay_s: -0.07     # s; firmware feeder actuation lead (shot timing).
+                                          # negative = feeder fires ahead of computed
+                                          # alignment. Per-robot (overridden by robot profiles).
                 omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
                 # Single-panel solver validity gates (state 1 / 2a): outside
                 # these the engine keeps aiming but holds fire (cv_state NO_TARGET).
@@ -231,12 +234,115 @@
         # 
         # optionals (which are combined/merged with defaults)
         #
+        # Robot profiles are self-contained: a single `@SENTRY` / `@STANDARD` /
+        # `@HERO` bundles that robot's camera + classical detector + ballistics.
+        # All three currently share the only calibrated camera (mrcal_1280x720);
+        # diverge per robot as cameras get their own intrinsics.
         SENTRY:
             bot: sentry
-        
+            hardware:
+                camera: usb_cam
+                camera_index: 0
+                camera_exposure: 35
+                camera_fps: 90
+                camera_width: 1280
+                camera_height: 720
+                camera_intrinsics_path: "mrcal_1280x720"
+                lens_correction_mode: normal
+            # Classical-detector params are camera-dependent -> per-robot.
+            # (live_tuning + show_icon_filters stay global -- debug toggles.)
+            classical:
+                cam_width: 1280
+                cam_height: 720
+                cam_fps: 90
+                cam_exposure: 35
+                blue_thresh: [ 200, 240 ]
+                red_thresh: [ 200, 240 ]
+                angle_diff_multiplier: 1
+                misalignment_multiplier: 2
+                expected_distance_multiplier: 0.5
+                height_ratio_multiplier: 1
+                angle_diff_thresh: 45
+                misalignment_thresh: 30
+                height_ratio_thresh: [ 0.5, 2.0 ]
+                score_thresh: 200
+                icon_adaptive_thresh: [ 101, -5 ]
+                icon_tolerance: 55
+            ballistic:                               # 17mm; proj_vel/feeder = default
+                barrel_offset: [0.0325, 0.150, 0.0]  # [bx, by, bz] m; per-robot
+                yaw_offset: 0                         # deg; per-robot
+
         STANDARD:
             bot: standard
-        
+            hardware:
+                camera: usb_cam
+                camera_index: 0
+                camera_exposure: 35
+                camera_fps: 90
+                camera_width: 1280
+                camera_height: 720
+                camera_intrinsics_path: "mrcal_1280x720"
+                lens_correction_mode: normal
+            # Classical-detector params are camera-dependent -> per-robot.
+            # (live_tuning + show_icon_filters stay global -- debug toggles.)
+            classical:
+                cam_width: 1280
+                cam_height: 720
+                cam_fps: 90
+                cam_exposure: 35
+                blue_thresh: [ 200, 240 ]
+                red_thresh: [ 200, 240 ]
+                angle_diff_multiplier: 1
+                misalignment_multiplier: 2
+                expected_distance_multiplier: 0.5
+                height_ratio_multiplier: 1
+                angle_diff_thresh: 45
+                misalignment_thresh: 30
+                height_ratio_thresh: [ 0.5, 2.0 ]
+                score_thresh: 200
+                icon_adaptive_thresh: [ 101, -5 ]
+                icon_tolerance: 55
+            ballistic:                               # 17mm; proj_vel/feeder = default
+                barrel_offset: [0.0325, 0.150, 0.0]  # [bx, by, bz] m; per-robot
+                yaw_offset: 0                         # deg; per-robot
+
+        HERO:                      # 42mm hero. Self-contained: just `@HERO`
+                                   # (bundles camera + classical detector + ballistics).
+            bot: hero
+            hardware:
+                camera: usb_cam
+                camera_index: 0
+                camera_exposure: 50
+                camera_fps: 90
+                camera_width: 1280
+                camera_height: 720
+                camera_intrinsics_path: "mrcal_hero_1280x720"
+                lens_correction_mode: normal
+            # Classical-detector params are camera-dependent, so they're per-robot.
+            # (live_tuning + show_icon_filters stay global -- they're debug toggles.)
+            classical:
+                cam_width: 1280
+                cam_height: 720
+                cam_fps: 90
+                cam_exposure: 35
+                blue_thresh: [ 200, 240 ]
+                red_thresh: [ 200, 240 ]
+                angle_diff_multiplier: 1
+                misalignment_multiplier: 2
+                expected_distance_multiplier: 0.5
+                height_ratio_multiplier: 1
+                angle_diff_thresh: 45
+                misalignment_thresh: 30
+                height_ratio_thresh: [ 0.5, 2.0 ]
+                score_thresh: 200
+                icon_adaptive_thresh: [ 101, -5 ]
+                icon_tolerance: 55
+            ballistic:
+                projectile_velocity: 1600 # cm/s; placeholder -- tune on-robot (42mm muzzle vel)
+                feeder_delay_s: -0.07     # s; placeholder -- tune the hero feeder lead on-robot
+                barrel_offset: [0.0325, 0.150, 0.0]  # [bx, by, bz] m; placeholder -- hero barrel tip offset
+                yaw_offset: 0             # deg; placeholder -- hero horizontal aim offset
+
         GPU=NONE:
             model:
                 hardware_acceleration: 'cpu'
@@ -259,17 +365,8 @@
                 camera_height: 720
                 camera_intrinsics_path: "main_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
         
-# TODO fix this after you fix threading bug      
-        CAMERA=SENTRY_CAM:
-            hardware:
-                camera: usb_cam
-                camera_index: 0
-                camera_exposure: 35
-                camera_fps: 90
-                camera_width: 1280 # 1280
-                camera_height: 720 # 720
-                camera_intrinsics_path: "mrcal_1280x720"
-                lens_correction_mode: normal      
+# CAMERA=SENTRY_CAM removed -- the sentry camera is now bundled into the @SENTRY
+# robot profile above (likewise @STANDARD / @HERO). Use @SENTRY instead.
 
         # CAMERA=SENTRY_CAM:
         #     hardware:

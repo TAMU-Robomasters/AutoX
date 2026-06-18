@@ -39,7 +39,7 @@ from src.types.autoaim import (
 BALLISTIC = config.ballistic
 METERS_TO_CM = 100.0
 
-FEEDER_DELAY_S = -0.07 # firmware feeder actuation lead (s); tuned on-robot
+FEEDER_DELAY_S = float(BALLISTIC.feeder_delay_s)  # firmware feeder actuation lead (s); per-robot, see info.yaml
 _TRACK_ALIGNMENT_TIME_MS = 255
 
 
