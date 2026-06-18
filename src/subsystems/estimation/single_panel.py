@@ -22,7 +22,8 @@ from typing import Optional
 import numpy as np
 
 from src.core.module import Module, mock, real
-from src.subsystems.estimation.full_state.kalman_filter import PositionKF
+from src.subsystems.estimation.filters import PositionKF
+from src.toolbox.globals import config
 from src.types.autoaim import (
     ArmorPanel,
     EnemyRobot,
@@ -35,10 +36,13 @@ def _default_panel_kf() -> PositionKF:
     """Constant-velocity KF over the panel itself (r=0: no back-projection)."""
     return PositionKF(
         r_pos=3.0,        # cm, single-frame panel position noise
-        q_vx=500.0,
-        q_vy=500.0,
+        q_vx=50.0,
+        q_vy=50.0,
         r=0.0,            # back_project(x, y, yaw, 0) == (x, y)
         init_std=(10.0, 10.0, 50.0, 50.0),
+        model=str(config.estimation.motion_model),
+        q_jerk=float(config.estimation.pos_q_jerk),
+        init_std_accel=float(config.estimation.pos_init_std_accel),
     )
 
 

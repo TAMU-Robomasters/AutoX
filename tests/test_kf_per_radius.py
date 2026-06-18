@@ -60,7 +60,7 @@ def _module(target_robot, estimator, frame_ts=10.0):
 def test_position_kf_per_measurement_radius():
     """Observations of two parities back-project to the same centre with their own radii."""
     sys.argv = [sys.argv[0]]
-    from src.subsystems.estimation.full_state.kalman_filter import PositionKF
+    from src.subsystems.estimation.filters import PositionKF
 
     center = np.array([40.0, 250.0])
     theta = 0.6
@@ -81,7 +81,7 @@ def test_position_kf_per_measurement_radius():
 def test_position_kf_default_radius_preserved():
     """r=None keeps the constructor radius (archived-engine behavior)."""
     sys.argv = [sys.argv[0]]
-    from src.subsystems.estimation.full_state.kalman_filter import PositionKF
+    from src.subsystems.estimation.filters import PositionKF
 
     center = np.array([0.0, 100.0])
     kf = PositionKF(r_pos=1.0, q_vx=1.0, q_vy=1.0, r=23.5, init_std=(50, 50, 5, 5))

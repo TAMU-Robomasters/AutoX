@@ -27,7 +27,7 @@ import numpy as np
 
 from src.core.module import Module, mock, real
 from src.subsystems.ballistics.solver import mcu_yaw_from_xy, solve_no_spin
-from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.filters import FullStateKF
 from src.toolbox.globals import config
 from src.types.autoaim import (
     BallisticSolution,
@@ -80,8 +80,6 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
             inputs=["estimate", "target_robot"],
             outputs=["solution"],
         )
-        self._estimator: Optional[FullStateEstimator] = None
-
         # Metre units for the shared LM solver (matches single_panel.py).
         self._g: float = -(abs(BALLISTIC.gravity) / METERS_TO_CM)      # m/s^2, negative
         self._v: float = BALLISTIC.projectile_velocity / METERS_TO_CM  # m/s
@@ -89,10 +87,6 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
         self._max_tof: float = float(BALLISTIC.max_time_of_flight)     # s
         self._max_range: float = float(BALLISTIC.max_range)            # cm
         self._tol: float = float(BALLISTIC.solver_tol)
-
-    def set_estimator(self, estimator: FullStateEstimator) -> None:
-        """Inject the state estimator instance created by the engine."""
-        self._estimator = estimator
 
     def _track_only(self, p_t_m: np.ndarray) -> BallisticSolution:
         """Straight-line aim with fire held (no real ballistic solution); p_t in metres."""
@@ -114,8 +108,6 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
             # Engine must not route here before parity anchoring sets aim_z.
             self.log.warning("estimate has no aim_z; cannot solve")
             return None
-        if self._estimator is None:
-            raise RuntimeError("State estimator not set. Engine must inject it in initialize().")
 
         est = estimate.value
         x, y = float(est[0]), float(est[1])
@@ -151,9 +143,10 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
             return self._track_only(p_circ)
         t_circ = circ_sol["time"]
 
-        # Predict the robot pose at the moment the bullet reaches the panel surface.
-        prediction = self._estimator.prediction(
-            t_circ + time_since_estimate + FEEDER_DELAY_S
+        # Predict the robot pose at the moment the bullet reaches the panel surface
+        # (constant-velocity extrapolation of the estimate -- no estimator instance).
+        prediction = FullStateKF.predict_ahead(
+            est, t_circ + time_since_estimate + FEEDER_DELAY_S
         )
         px, py = float(prediction[0]), float(prediction[1])
         theta0, omega = float(prediction[4]), float(prediction[5])

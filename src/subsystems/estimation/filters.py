@@ -237,12 +237,31 @@ class AngleKF:
         return float(self._kf.x[0]) % self.step_size
 
 
-class PositionKF:
-    """Constant-velocity Kalman filter for a robot's 2-D centre position.
+CONSTANT_VELOCITY = "constant_velocity"
+CONSTANT_ACCELERATION = "constant_acceleration"
 
-    State: ``[x, y, vx, vy]``. Measurements are panel observations
-    ``(x_obs, y_obs, yaw_obs)``, back-projected to the robot's centre via the
-    fixed marker orbit radius ``r``.
+
+class PositionKF:
+    """Kalman filter for a robot's 2-D centre position (CV or CA motion).
+
+    Measurements are panel observations ``(x_obs, y_obs, yaw_obs)``,
+    back-projected to the robot's centre via the marker orbit radius ``r``.
+
+    Two motion models, selectable via ``model``; this is the *only* place the
+    CV/CA switch lives (the angle/height filters are always constant-velocity):
+
+    - ``constant_velocity`` -- internal state ``[x, y, vx, vy]``. ``q_vx``/``q_vy``
+      are the per-axis white-noise-acceleration spectral densities (the noise
+      enters at the velocity level).
+    - ``constant_acceleration`` -- internal state ``[x, y, vx, vy, ax, ay]``. The
+      acceleration is tracked but the **only** process-noise driver is jerk
+      (``q_jerk``): position and velocity process noise are *derived* from it via
+      the standard continuous white-noise-jerk Q. Lower bandwidth (smoother) at
+      the cost of some ringing -- the intended A/B against CV.
+
+    Either way ``estimate()`` returns just ``[x, y, vx, vy]`` -- the acceleration
+    stays internal, so every downstream consumer (FullStateKF's 7-D layout,
+    ballistics) is unaffected by the model choice.
     """
 
     def __init__(
@@ -252,27 +271,42 @@ class PositionKF:
         q_vy: float = 100.0,
         r: float = 23.5,
         init_std: tuple[float, float, float, float] = (100.0, 100.0, 10.0, 10.0),
+        model: str = CONSTANT_VELOCITY,
+        q_jerk: float = 30.0,
+        init_std_accel: float = 50.0,
     ) -> None:
+        if model not in (CONSTANT_VELOCITY, CONSTANT_ACCELERATION):
+            raise ValueError(
+                f"PositionKF model must be {CONSTANT_VELOCITY!r} or "
+                f"{CONSTANT_ACCELERATION!r}, got {model!r}"
+            )
         self.r_pos = r_pos
         self.q_vx = q_vx
         self.q_vy = q_vy
         self.r = r
         self.init_std = np.array(init_std, dtype=np.float64)
+        self.model = model
+        self.q_jerk = q_jerk
+        self.init_std_accel = init_std_accel
+        self._ca = model == CONSTANT_ACCELERATION
 
-        self._kf = KalmanFilter(dim_x=4, dim_z=2)
-        self._kf.H = np.array(
-            [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-            ]
-        )
+        dim_x = 6 if self._ca else 4
+        self._kf = KalmanFilter(dim_x=dim_x, dim_z=2)
+        self._kf.H = np.zeros((2, dim_x))
+        self._kf.H[0, 0] = 1.0
+        self._kf.H[1, 1] = 1.0
         self._kf.R = np.diag([self.r_pos**2, self.r_pos**2])
         self.reinit(0.0, 0.0)
 
     def reinit(self, x0: float, y0: float, vx0: float = 0.0, vy0: float = 0.0) -> None:
-        """Re-seed the state at ``(x0, y0, vx0, vy0)``."""
-        self._kf.x = np.array([x0, y0, vx0, vy0], dtype=np.float64)
-        self._kf.P = np.diag(self.init_std**2)
+        """Re-seed the state at ``(x0, y0, vx0, vy0)`` (accel starts at 0 in CA)."""
+        if self._ca:
+            self._kf.x = np.array([x0, y0, vx0, vy0, 0.0, 0.0], dtype=np.float64)
+            var = np.concatenate([self.init_std**2, [self.init_std_accel**2] * 2])
+            self._kf.P = np.diag(var)
+        else:
+            self._kf.x = np.array([x0, y0, vx0, vy0], dtype=np.float64)
+            self._kf.P = np.diag(self.init_std**2)
 
     @staticmethod
     def back_project(x_obs: float, y_obs: float, yaw_obs: float, r: float) -> tuple[float, float]:
@@ -281,7 +315,8 @@ class PositionKF:
         cy = y_obs - r * np.sin(yaw_obs)
         return cx, cy
 
-    def _predict(self, dt: float) -> None:
+    def _cv_matrices(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
+        """``(F, Q)`` for the ``[x, y, vx, vy]`` constant-velocity model."""
         F = np.array(
             [
                 [1.0, 0.0, dt, 0.0],
@@ -290,7 +325,6 @@ class PositionKF:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-
         qx, qy = self.q_vx**2, self.q_vy**2
         Q = np.array(
             [
@@ -300,7 +334,39 @@ class PositionKF:
                 [0.0, qy * dt**2 / 2.0, 0.0, qy * dt],
             ]
         )
+        return F, Q
 
+    def _ca_matrices(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
+        """``(F, Q)`` for the ``[x, y, vx, vy, ax, ay]`` constant-acceleration model.
+
+        State is block-ordered (pos, vel, accel) so the first four entries stay
+        ``[x, y, vx, vy]``. Process noise is the continuous white-noise-jerk Q --
+        a single jerk driver ``q_jerk`` whose effect on the position and velocity
+        blocks is derived analytically (no independent pos/vel noise).
+        """
+        F = np.eye(6)
+        F[0, 2] = dt
+        F[1, 3] = dt
+        F[2, 4] = dt
+        F[3, 5] = dt
+        F[0, 4] = 0.5 * dt**2
+        F[1, 5] = 0.5 * dt**2
+
+        q = self.q_jerk**2
+        d5, d4, d3, d2 = dt**5, dt**4, dt**3, dt**2
+        Q = np.zeros((6, 6))
+        # Per axis the [p, v, a] white-noise-jerk block; x uses (0,2,4), y (1,3,5).
+        for ip, iv, ia in ((0, 2, 4), (1, 3, 5)):
+            Q[ip, ip] = q * d5 / 20.0
+            Q[ip, iv] = Q[iv, ip] = q * d4 / 8.0
+            Q[ip, ia] = Q[ia, ip] = q * d3 / 6.0
+            Q[iv, iv] = q * d3 / 3.0
+            Q[iv, ia] = Q[ia, iv] = q * d2 / 2.0
+            Q[ia, ia] = q * dt
+        return F, Q
+
+    def _predict(self, dt: float) -> None:
+        F, Q = self._ca_matrices(dt) if self._ca else self._cv_matrices(dt)
         self._kf.predict(F=F, Q=Q)
 
     def _correct(self, cx: float, cy: float) -> float:
@@ -333,8 +399,8 @@ class PositionKF:
         return self.estimate(), None
 
     def estimate(self) -> np.ndarray:
-        """Return the current ``[x, y, vx, vy]`` state."""
-        return np.array(self._kf.x, dtype=np.float64).flatten()
+        """Return the published ``[x, y, vx, vy]`` state (accel stays internal)."""
+        return np.array(self._kf.x[:4], dtype=np.float64).flatten()
 
     @staticmethod
     def predict_ahead(state: np.ndarray, dt: float) -> np.ndarray:

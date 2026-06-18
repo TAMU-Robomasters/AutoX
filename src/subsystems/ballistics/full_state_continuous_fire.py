@@ -32,7 +32,7 @@ from src.subsystems.ballistics.solver import (
     select_panel_at_time,
     solve_no_spin,
 )
-from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.filters import FullStateKF
 from src.toolbox.globals import config
 from src.types.autoaim import (
     BallisticSolution,
@@ -138,15 +138,9 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
             inputs=["estimate", "target_robot"],
             outputs=["solution"],
         )
-        self._estimator: Optional[FullStateEstimator] = None
-
         self._g: float = -(abs(BALLISTIC.gravity) / METERS_TO_CM)    # m/s^2, negative
         self._v: float = BALLISTIC.projectile_velocity / METERS_TO_CM  # m/s
         self._barrel: np.ndarray = np.asarray(BALLISTIC.barrel_offset, dtype=float)  # m
-
-    def set_estimator(self, estimator: FullStateEstimator) -> None:
-        """Inject the state estimator instance created by the engine."""
-        self._estimator = estimator
 
     @real()
     def _run_solve(
@@ -159,12 +153,11 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
             # Engine must not route here before parity anchoring sets aim_z.
             self.log.warning("estimate has no aim_z; cannot solve")
             return None
-        if self._estimator is None:
-            raise RuntimeError("State estimator not set. Engine must inject it in initialize().")
 
-        # Advance state to firing time (processing delay since the estimate).
+        # Advance state to firing time (processing delay since the estimate) via
+        # constant-velocity extrapolation -- no estimator instance needed.
         time_since_estimate = time.perf_counter() - estimate.timestamp
-        pred = self._estimator.prediction(time_since_estimate)
+        pred = FullStateKF.predict_ahead(estimate.value, time_since_estimate + BALLISTIC.lookahead_time)
 
         p_t = np.array(
             [pred[0] / METERS_TO_CM, pred[1] / METERS_TO_CM, estimate.aim_z / METERS_TO_CM]

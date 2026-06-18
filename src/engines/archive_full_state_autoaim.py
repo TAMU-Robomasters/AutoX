@@ -33,7 +33,7 @@ from src.subsystems.ballistics.full_state_shot_timing import FullStateShotTiming
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import CVState
-from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.filters import FullStateEstimator
 from src.subsystems.estimation.full_state.kf import (
     KalmanFilterEstimationModule,
     _default_full_state_kf,
@@ -106,8 +106,6 @@ class ArchiveFullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         else:
             estimator = _default_particle_filter()
         self.estimation.set_estimator(estimator)
-        self.shot_timing.set_estimator(estimator)
-        self.continuous_fire.set_estimator(estimator)
 
         self.target_timeout = Timeout(duration=RESET_TIMEOUT_MS / 1E3)  # 500 ms timeout for filter updates
 

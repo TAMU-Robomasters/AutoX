@@ -133,13 +133,16 @@ def test_init_guess_yaw_is_mcu_convention():
 
 
 class _FixedPredictor:
-    """Estimator stand-in whose prediction() returns a fixed 6-D state."""
+    """Holds a fixed state used to stub the static ``predict_ahead``.
+
+    The ballistic modules extrapolate via ``FullStateKF.predict_ahead(state, dt)``
+    (no estimator instance). The helpers below monkeypatch that static method to
+    return this fixed state regardless of ``dt``, so the alignment/aim math is
+    tested in isolation from the constant-velocity extrapolation.
+    """
 
     def __init__(self, state):
         self.state = np.asarray(state, dtype=np.float32)
-
-    def prediction(self, dt):
-        return self.state
 
 
 def _estimate(x, y, theta, omega, a_radius, b_radius, aim_z, now):
@@ -165,7 +168,7 @@ def _shot_timing_module(estimate, predictor, monkeypatch, now):
         estimate=estimate, target_robot=EnemyRobot(name="standard")
     )
     module = st.FullStateShotTimingModule(ctx)
-    module.set_estimator(predictor)
+    monkeypatch.setattr(st.FullStateKF, "predict_ahead", lambda state, dt: predictor.state)
     return module, st
 
 
@@ -254,7 +257,7 @@ def _continuous_fire_module(estimate, predictor, monkeypatch, now):
         estimate=estimate, target_robot=EnemyRobot(name="standard")
     )
     module = cf.FullStateContinuousFireModule(ctx)
-    module.set_estimator(predictor)
+    monkeypatch.setattr(cf.FullStateKF, "predict_ahead", lambda state, dt: predictor.state)
     return module, cf
 
 

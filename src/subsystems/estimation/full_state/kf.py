@@ -30,7 +30,7 @@ from typing import Optional
 import numpy as np
 
 from src.core.module import Module, mock, real
-from src.subsystems.estimation.full_state.kalman_filter import (
+from src.subsystems.estimation.filters import (
     AngleKF,
     FullStateKF,
     HeightKF,
@@ -48,11 +48,14 @@ from src.types.autoaim import (
 def _default_full_state_kf(r: float = 23.5) -> FullStateKF:
     """Create a FullStateKF with the same hyperparameters as ``_default_particle_filter``."""
     position_kf = PositionKF(
-        r_pos=20.0,
-        q_vx=500.0,
-        q_vy=500.0,
+        r_pos=5.0,
+        q_vx=50.0,
+        q_vy=50.0,
         r=r,
         init_std=(100.0, 100.0, 10.0, 10.0),
+        model=str(config.estimation.motion_model),
+        q_jerk=float(config.estimation.pos_q_jerk),
+        init_std_accel=float(config.estimation.pos_init_std_accel),
     )
     angle_kf = AngleKF(
         N=4,

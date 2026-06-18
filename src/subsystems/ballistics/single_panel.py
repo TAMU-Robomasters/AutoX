@@ -25,6 +25,7 @@ import numpy as np
 
 from src.core.module import Module, mock, real
 from src.subsystems.ballistics.solver import mcu_yaw_from_xy, solve_no_spin
+from src.subsystems.estimation.filters import PositionKF
 from src.toolbox.globals import config
 from src.types.autoaim import (
     BallisticSolution,
@@ -72,8 +73,7 @@ class SinglePanelBallisticModule(Module[FullStateAutoAimContext]):
 
         # Constant-velocity advance from estimate time to now (cm).
         dt = max(time.perf_counter() - xy_estimate.timestamp, 0.0)
-        x, y, vx, vy = (float(v) for v in xy_estimate.value)
-        x, y = x + vx * dt, y + vy * dt
+        x, y, vx, vy = (float(v) for v in PositionKF.predict_ahead(xy_estimate.value, dt + BALLISTIC.lookahead_time))
 
         p_t = np.array([x, y, xy_estimate.z]) / METERS_TO_CM  # metres
         v_t = np.array([vx, vy, 0.0]) / METERS_TO_CM

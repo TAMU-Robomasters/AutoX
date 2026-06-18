@@ -131,7 +131,9 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self.panel_tracking = PanelTrackingModule(self.ctx)
         self.estimation = KalmanFilterEstimationModule(self.ctx)
         self.radii_estimator = RadiiEstimatorModule(
-            self.ctx, initial_guess=est_cfg.initial_radius_guess
+            self.ctx,
+            initial_guess=est_cfg.initial_radius_guess,
+            gate_confidence=est_cfg.radii_gate_confidence,
         )
         self.height_delta_estimator = PanelHeightDeltaModule(self.ctx)
         self.single_panel_estimation = SinglePanelEstimationModule(
@@ -201,8 +203,6 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         guess = float(config.estimation.initial_radius_guess)
         estimator = _default_full_state_kf(r=guess)
         self.estimation.set_estimator(estimator)
-        self.shot_timing.set_estimator(estimator)
-        self.continuous_fire.set_estimator(estimator)
         self.estimation.set_panel_radii(guess, guess)
 
     def _init_state_machine(self, store: JsonStore) -> None:

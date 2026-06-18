@@ -25,6 +25,7 @@ from typing import Dict, Optional
 
 import numpy as np
 from filterpy.kalman import KalmanFilter
+from scipy.stats import chi2
 
 from src.core.module import Module, mock, real
 from src.subsystems.estimation.robot_constants import measure_pair_by_parity
@@ -39,8 +40,9 @@ from src.types.autoaim import (
 _INIT_STD = 10.0      # prior std on each radius
 _PROCESS_STD = 0.05   # per-update drift allowance
 _MEAS_STD = 3.0       # single-measurement noise
-_MAHALANOBIS_GATE = 16.0  # ~99.97% for 2 dof; drops id-misassignment outliers
-_R_MIN, _R_MAX = 5.0, 60.0  # physically plausible orbit radii (cm)
+_GATE_DOF = 2         # innovation is [r_even, r_odd]; chi-squared dof for the gate
+_DEFAULT_GATE_CONFIDENCE = 0.9997  # ~= a fixed gate of 16.0 for 2 dof
+_R_MIN, _R_MAX = 5.0, 45.0  # physically plausible orbit radii (cm)
 
 
 @dataclass
@@ -63,7 +65,12 @@ def _build_kf(initial_guess: float) -> KalmanFilter:
 class RadiiEstimatorModule(Module[FullStateAutoAimContext]):
     """Estimate the (r_even, r_odd) panel-orbit radii of the target robot."""
 
-    def __init__(self, context: FullStateAutoAimContext, initial_guess: float = 23.5):
+    def __init__(
+        self,
+        context: FullStateAutoAimContext,
+        initial_guess: float = 23.5,
+        gate_confidence: float = _DEFAULT_GATE_CONFIDENCE,
+    ):
         super().__init__(
             name="radii_estimator",
             context=context,
@@ -71,6 +78,9 @@ class RadiiEstimatorModule(Module[FullStateAutoAimContext]):
             outputs=["radii_estimate"],
         )
         self._initial_guess = float(initial_guess)
+        # Mahalanobis (chi-squared, 2 dof) outlier gate, set from a confidence
+        # percentile so it can be tuned in physical terms from config.
+        self._mahalanobis_gate = float(chi2.ppf(gate_confidence, _GATE_DOF))
         self._filters: Dict[str, _RobotRadiiKF] = {}
 
     def reset(self, robot_name: Optional[str] = None) -> None:
@@ -103,7 +113,7 @@ class RadiiEstimatorModule(Module[FullStateAutoAimContext]):
                     innovation = z - entry.kf.x.flatten()
                     S = entry.kf.P + entry.kf.R
                     mahalanobis_sq = float(innovation @ np.linalg.solve(S, innovation))
-                    if mahalanobis_sq < _MAHALANOBIS_GATE:
+                    if mahalanobis_sq < self._mahalanobis_gate:
                         entry.kf.update(z)
                         entry.n_updates += 1
                     else:

@@ -9,7 +9,7 @@ from typing import Optional
 import numpy as np
 
 from src.core.module import Module, mock, real
-from src.subsystems.estimation.full_state.kalman_filter import FullStateEstimator
+from src.subsystems.estimation.filters import FullStateEstimator
 from src.subsystems.estimation.full_state.particle_filter import ParticleFilter
 from src.types.autoaim import (
     ArmorPanel,
