@@ -60,3 +60,17 @@ For low-rate rich links that are awkward to fix-size early, a pickled
 `multiprocessing.Queue` between two engines is acceptable (mirrors the old
 float-Queue). Reserve iceoryx2 + `IpcType` for the high-rate/latency-sensitive
 links. Make it visible which links are zero-copy vs queue.
+
+### Realized (circlet — plan 07)
+The interim shortcut is now implemented and in use for the circlet→auto-aim
+detections link:
+- Engines declare `publishes_queue` / `subscribes_queue` (single link name each)
+  as class attributes on `Engine` (`src/core/engine.py`).
+- `orchestrator._wire_engine_queues` creates **one shared `multiprocessing.Queue`
+  per unique name** and injects it before `start()` (inherited by the child at
+  fork, like `_log_queue`). **Two engines publishing the same name = hard
+  `RuntimeError`** — the global-namespace safety net this plan calls for.
+- `Engine.publish(msg)` / `Engine.latest_subscribed()` give last-value semantics
+  (drain-to-newest), matching the camera ring buffer.
+This is the queue path; the full `IpcType`/iceoryx2 zero-copy design above is
+still the target for high-rate links.

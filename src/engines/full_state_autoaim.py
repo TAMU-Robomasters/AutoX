@@ -109,14 +109,18 @@ class AimState(Enum):
     """Per-robot aim state (see the module docstring for the transitions)."""
 
     PARAMETER_ESTIMATION = auto()  # state 1: learning radii + height delta
-    FULL_STATE_INIT = auto()       # state 2a: constants loaded, parity unanchored
-    FULL_STATE_TRACKING = auto()   # state 2b: anchored, full-state aiming
+    FULL_STATE_INIT = auto()  # state 2a: constants loaded, parity unanchored
+    FULL_STATE_TRACKING = auto()  # state 2b: anchored, full-state aiming
 
 
 class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
     """Auto-aim engine: learns each robot's geometry, then full-state aims with it."""
 
     drivers = {"frames": CameraDriver, "mcu": McuDriver}
+    # Subscribe to the circlet ring's 360 detections (interim queue link). The
+    # link is only fed when a CircletEngine is launched alongside (the @CIRCLET
+    # profile); without it this is a no-op and the gimbal-camera path is unchanged.
+    subscribes_queue = "circlet_detections"
 
     def __init__(
         self, driver_registry: Optional[dict] = None, queue: Optional[Queue] = None
@@ -198,6 +202,24 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self._no_obs_count = 0
         self._fps_window_start = time.perf_counter()
 
+        # Circlet ring (interim queue link): the newest 360 detections, lifted to
+        # the turret frame with the cached gimbal pose and classified by icon.
+        # They broaden target *selection*; the gimbal-camera KF/ballistic path is
+        # unchanged. drive_slew (opt-in, off by default) lets a circlet-only
+        # target slew the turret when the gimbal camera sees nothing.
+        self._circlet_robots: Dict[str, EnemyRobot] = {}
+        self._circlet_target: Optional[EnemyRobot] = None
+        self._circlet_msg_ts: float = 0.0
+        self._last_turret_yaw: float = 0.0
+        self._last_turret_pitch: float = 0.0
+        circlet_cfg = getattr(config, "circlet", None)
+        self._circlet_drive_slew = (
+            bool(getattr(circlet_cfg, "drive_slew", False)) if circlet_cfg else False
+        )
+        self._circlet_timeout_s = (
+            float(getattr(circlet_cfg, "timeout_ms", 500)) / 1e3 if circlet_cfg else 0.5
+        )
+
     def _init_estimators(self) -> None:
         """Build the full-state KF and inject it + the initial radii guess."""
         guess = float(config.estimation.initial_radius_guess)
@@ -263,7 +285,9 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             # T5: keep the radii/height KFs (static geometry), but their parity
             # keying may not match the next theta track's ids.
             self._needs_parity_anchor[name] = True
-            self.log.info("T5: lost %r in PARAMETER_ESTIMATION; will re-anchor parity", name)
+            self.log.info(
+                "T5: lost %r in PARAMETER_ESTIMATION; will re-anchor parity", name
+            )
 
     def _on_target_switch(self, name: str) -> None:
         """T6: the targeted robot's name changed -- swap in its per-robot state."""
@@ -277,11 +301,19 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self.panel_tracking.reset()
         self.estimation.clear_aim_geometry()
 
-        if previous is not None and self._state_for(previous) == AimState.FULL_STATE_TRACKING:
+        if (
+            previous is not None
+            and self._state_for(previous) == AimState.FULL_STATE_TRACKING
+        ):
             self._state[previous] = AimState.FULL_STATE_INIT
         if self._state_for(name) == AimState.PARAMETER_ESTIMATION:
             self._needs_parity_anchor[name] = True
-        self.log.info("T6: target switch %r -> %r (%s)", previous, name, self._state_for(name).name)
+        self.log.info(
+            "T6: target switch %r -> %r (%s)",
+            previous,
+            name,
+            self._state_for(name).name,
+        )
 
     def _robot_by_name(self, name: Optional[str]) -> Optional[EnemyRobot]:
         """The freshly-classified robot for ``name`` this frame (None if absent)."""
@@ -364,7 +396,9 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         if match_parity(stored, measured):
             self.panel_tracking.set_parity_offset(1)
             self.panel_tracking.run()  # re-label this frame's ids with the flip
-            self.log.info("T5: parity swap detected for %r; tracker offset flipped", name)
+            self.log.info(
+                "T5: parity swap detected for %r; tracker offset flipped", name
+            )
         self._needs_parity_anchor[name] = False
 
     def _check_constants_converged(self, name: str) -> None:
@@ -522,12 +556,16 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         else:
             self._no_obs_count += 1
 
+        # Fold in the circlet ring's latest 360 detections (no-op without a
+        # CircletEngine feeding the link).
+        self._consume_circlet()
+
         # ------------------------------------------------------------------
         # Dispatch to the active state's pipeline (every tick a target exists).
         # ------------------------------------------------------------------
         if self.ctx.target_robot is not None:
             # self.log.debug(f"panels: {self.ctx.target_robot.panels}")
-    
+
             name = self.ctx.target_robot.name
             state = self._state_for(name)
             if state == AimState.PARAMETER_ESTIMATION:
@@ -538,6 +576,10 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
                 active_cv_state = self._run_full_state_tracking(name)
             self.log.debug("estimate before state pipeline: %s", self.ctx.estimate)
             self._publish_solution(active_cv_state)
+        elif self._circlet_drive_slew and self._circlet_target is not None:
+            # Gimbal camera has no target but the ring sees one: slew toward it
+            # (aim, hold fire). Opt-in + experimental -- see _slew_to_circlet.
+            self._slew_to_circlet()
 
         self._pace(start)
 
@@ -550,14 +592,16 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             # a degenerate PnP otherwise poisons the KFs permanently (NaN aim_z,
             # position, or yaw survive every Kalman update until the next reinit).
             finite = [
-                p for p in panels
+                p
+                for p in panels
                 if p.position is not None
                 and np.all(np.isfinite(p.position))
                 and (p.orientation is None or np.all(np.isfinite(p.orientation)))
             ]
             if len(finite) != len(panels):
                 self.log.warning(
-                    "dropped %d panel(s) with non-finite pose", len(panels) - len(finite)
+                    "dropped %d panel(s) with non-finite pose",
+                    len(panels) - len(finite),
                 )
             panels = finite
             self.ctx.panels = finite
@@ -580,7 +624,9 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             return
 
         # Transform panel poses into the turret frame via the MCU.
-        frame_ts = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
+        frame_ts = (
+            self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
+        )
         frame_delay_ms = int((time.perf_counter() - frame_ts) * 1000)
         transformation_data = self.mcu.get_transformation(frame_delay_ms)
         if transformation_data is None:
@@ -588,6 +634,10 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             self.ctx.new_observation = False
         else:
             _turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
+            # Cache the gimbal pose so circlet chassis-frame panels can be lifted
+            # to the turret frame on ticks without a fresh gimbal-camera frame.
+            self._last_turret_yaw = _turret_yaw
+            self._last_turret_pitch = _turret_pitch
             _transform_panels_to_turret_frame(panels, camera_to_turret_matrix)
             self.ctx.new_observation = True
 
@@ -611,7 +661,9 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self._last_pitch = solution.pitch
         self._last_yaw = solution.yaw + np.deg2rad(config.ballistic.yaw_offset)
         self.alignment_time_ms = solution.alignment_time_ms
-        self.cv_state = active_cv_state if solution.is_confident else CVState.NO_TARGET.value
+        self.cv_state = (
+            active_cv_state if solution.is_confident else CVState.NO_TARGET.value
+        )
 
     def update(self) -> None:
         """Send the latest solution to the MCU and service the display."""
@@ -645,6 +697,76 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self._obs_count = 0
         self._no_obs_count = 0
         self._fps_window_start = time.perf_counter()
+
+    # ------------------------------------------------------------------
+    # Circlet ring consumption (interim queue link)
+    # ------------------------------------------------------------------
+
+    def _consume_circlet(self) -> None:
+        """Drain the circlet link; lift its 360 panels to the turret frame + classify.
+
+        Updates ``self._circlet_robots`` (by name) and ``self._circlet_target``
+        (closest) on each new message, expiring them after ``circlet.timeout_ms``.
+        This is pure target-*selection* input -- it never feeds the gimbal-camera
+        KF/ballistics (those stay keyed off the gimbal camera's own panels).
+        """
+        from src.subsystems.circlet_support import (
+            chassis_to_turret_matrix,
+            circlet_panels_to_robots,
+        )
+
+        msg = self.latest_subscribed()
+        now = time.perf_counter()
+        if msg is not None:
+            rotation = chassis_to_turret_matrix(
+                self._last_turret_yaw, self._last_turret_pitch
+            )
+            self._circlet_robots = circlet_panels_to_robots(msg, rotation)
+            self._circlet_msg_ts = now
+        elif now - self._circlet_msg_ts > self._circlet_timeout_s:
+            self._circlet_robots = {}
+
+        self._circlet_target = self._closest_circlet_robot()
+        if self._circlet_target is not None and self.log.isEnabledFor(10):  # DEBUG
+            self.log.debug(
+                "circlet sees %d robot(s); closest=%s",
+                len(self._circlet_robots),
+                self._circlet_target.name,
+            )
+
+    def _closest_circlet_robot(self) -> Optional[EnemyRobot]:
+        """Closest robot among the current circlet detections (or None)."""
+        candidates = [r for r in self._circlet_robots.values() if r.panels]
+        if not candidates:
+            return None
+        return min(candidates, key=_closest_panel_distance)
+
+    def _slew_to_circlet(self) -> None:
+        """Point the turret at the closest circlet target (aim, hold fire).
+
+        EXPERIMENTAL (opt-in via ``circlet.drive_slew``): a coarse straight-line
+        aim at a robot only the ring can see, so the turret turns toward off-axis
+        threats. Reports NO_TARGET (no firing solution); the gimbal-camera path
+        takes over once it acquires the target. The chassis->turret geometry must
+        be validated on hardware before this is enabled.
+        """
+        from src.subsystems.ballistics.solver import mcu_yaw_from_xy
+
+        target = self._circlet_target
+        if target is None or not target.panels:
+            return
+        pos = target.panels[0].position
+        if pos is None:
+            return
+        x, y, z = float(pos[0]), float(pos[1]), float(pos[2])
+        horizontal = float(np.hypot(x, y))
+        self._last_yaw = float(mcu_yaw_from_xy(x, y)) + np.deg2rad(
+            config.ballistic.yaw_offset
+        )
+        if horizontal > 1e-6:
+            self._last_pitch = float(np.arctan2(z, horizontal))
+        self.alignment_time_ms = 255
+        self.cv_state = CVState.NO_TARGET.value
 
 
 # ---------------------------------------------------------------------------

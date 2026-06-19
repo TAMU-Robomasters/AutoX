@@ -154,6 +154,32 @@
                                                    # different robot is closer than this
                                                    # fraction of the locked distance.
 
+            # Circlet: a ring of body-fixed cameras (CircletEngine) that feeds 360
+            # detections to the auto-aim engine over the interim pub/sub queue.
+            # Disabled by default; turn on with the @CIRCLET profile. Cameras are
+            # unsynchronized and their fps varies at runtime.
+            circlet:
+                enable: false
+                loop_hz: 60          # circlet engine loop cap (Hz)
+                timeout_ms: 500      # auto-aim drops circlet detections older than this
+                drive_slew: false    # EXPERIMENTAL: when the gimbal camera has no target,
+                                     # slew the turret toward a circlet-only target (aim,
+                                     # hold fire). Validate chassis->turret geometry on
+                                     # hardware before enabling.
+                # Per-camera defaults (overridable per entry in `cameras`).
+                width: 1280
+                height: 720
+                fps: 15              # nominal capture fps (varies at runtime)
+                backend: mock        # pyav | mock | ffmpeg
+                # The four ring cameras. yaw_deg = mounting yaw about chassis z;
+                # translation = camera offset in cm. Extrinsics default to identity
+                # (single-camera bring-up) until per-camera calibration exists.
+                cameras:
+                    - {index: 1, yaw_deg: 0,   translation: [0, 0, 0]}
+                    - {index: 2, yaw_deg: 90,  translation: [0, 0, 0]}
+                    - {index: 3, yaw_deg: 180, translation: [0, 0, 0]}
+                    - {index: 4, yaw_deg: 270, translation: [0, 0, 0]}
+
             ballistic:
                 gravity: 981              # cm/s^2
                 projectile_velocity: 2800 # cm/s
@@ -391,6 +417,14 @@
                 camera_exposure: null
                 camera_intrinsics_path: "mrcal_1280x720"
                 lens_correction_mode: normal
+
+        # Launch the circlet ring alongside auto-aim. For laptop testing, stack on
+        # @MOCK_CAM (gimbal cam mock) + a robot profile (intrinsics), e.g.
+        # `@CIRCLET @MOCK_CAM @SENTRY` -- all five cameras loop the mock video.
+        CIRCLET:
+            circlet:
+                enable: true
+                backend: mock
         
 # CAMERA=SENTRY_CAM removed -- the sentry camera is now bundled into the @SENTRY
 # robot profile above (likewise @STANDARD / @HERO). Use @SENTRY instead.

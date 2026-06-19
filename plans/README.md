@@ -86,6 +86,11 @@ plan for whatever you're tackling.
 6. `06-logging-migration.md` — finish moving prints onto the new multiprocess
    logging (`src/toolbox/logger.py`): sweep remaining files, wire the log queue
    into driver processes, retire `config.log.disable_print`.
+7. `07-circlet-engine.md` — **(DONE)** circlet ring of 4 cameras → detector →
+   chassis-frame detections → auto-aim's classification/targeting. Realizes the
+   plan-03 interim queue link; adds the PyAV/v4l2 capture backends + a looping
+   video mock. Remaining: per-camera extrinsic/intrinsic calibration + validating
+   the chassis→turret geometry on hardware.
 
 ## Recurring gotchas
 

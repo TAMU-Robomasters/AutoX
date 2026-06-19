@@ -5,9 +5,10 @@ and provide an easy way to swap out modules with their mocks during runtime.
 """
 
 import inspect
+import queue as _queue
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
-from typing import Generic, List, Optional, Set, Type, TypeVar
+from typing import Any, Generic, List, Optional, Set, Type, TypeVar
 
 from src.core.module import Context, Module
 from src.toolbox.logger import configure_child_logging, get_logger
@@ -36,6 +37,14 @@ class Engine(_Process, ABC, Generic[T]):
     #: process. Override in subclasses; default = no drivers.
     drivers: dict = {}
 
+    #: Inter-engine pub/sub link names (the ``plans/03`` interim shortcut over a
+    #: pickled ``multiprocessing.Queue``). ``launch_system`` creates one shared
+    #: queue per unique name and injects it before ``start()`` (so the child
+    #: inherits it at fork). Two engines publishing the same name is a hard
+    #: startup error. Use :meth:`publish` / :meth:`latest_subscribed`.
+    publishes_queue: Optional[str] = None
+    subscribes_queue: Optional[str] = None
+
     def __init__(
         self,
         modules: List[Module],
@@ -63,8 +72,47 @@ class Engine(_Process, ABC, Generic[T]):
         #: Shared multiprocess log queue, set by orchestrator.launch_system
         #: after construction (None = log straight to console, e.g. in tests).
         self._log_queue = None
+        #: Inter-engine queues, set by launch_system after construction (None =
+        #: no link, e.g. when an engine runs standalone or in a unit test).
+        self._publish_q = None
+        self._subscribe_q = None
         self.log = get_logger(type(self).__name__)
         self._validate_wiring()
+
+    # ------------------------------------------------------------------
+    # Inter-engine pub/sub (interim queue link -- plans/03)
+    # ------------------------------------------------------------------
+
+    def publish(self, message: Any) -> None:
+        """Publish ``message`` on this engine's outbound queue (last-value, non-blocking).
+
+        Drains any unread prior message first so the queue holds ~one item and a
+        slow consumer always reads the newest -- the same last-value semantics as
+        the camera ring buffer. No-op if this engine declares no ``publishes_queue``.
+        """
+        if self._publish_q is None:
+            return
+        try:
+            while True:
+                self._publish_q.get_nowait()
+        except _queue.Empty:
+            pass
+        self._publish_q.put(message)
+
+    def latest_subscribed(self) -> Optional[Any]:
+        """Return the newest message on the inbound queue (draining older), or None.
+
+        No-op (returns None) if this engine declares no ``subscribes_queue``.
+        """
+        if self._subscribe_q is None:
+            return None
+        message = None
+        try:
+            while True:
+                message = self._subscribe_q.get_nowait()
+        except _queue.Empty:
+            pass
+        return message
 
     @abstractmethod
     def initialize(self):
@@ -99,7 +147,9 @@ class Engine(_Process, ABC, Generic[T]):
         (never in __init__, which runs in the parent before fork/spawn).
         """
         self.active = True
-        configure_child_logging(self._log_queue)  # route this child's logs to the parent
+        configure_child_logging(
+            self._log_queue
+        )  # route this child's logs to the parent
         self._log_pipeline()
         self._build_driver_handles()  # driver clients, before initialize() can use them
         self.initialize()
@@ -115,7 +165,7 @@ class Engine(_Process, ABC, Generic[T]):
 
     def update(self):
         """Runs every loop after execute. Useful for updating the display.
-        
+
         Override if needed, otherwise does nothing.
         """
         pass

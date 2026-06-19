@@ -310,6 +310,13 @@ def _open_service(node, payload_type: Type[ctypes.Structure], service_name: str)
     )
 
 
+def _cfg_get(obj, key: str, default=None):
+    """Read ``key`` from a config node that may be a dict (YAML list item) or attr-object."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def resolve_camera_config(name: str) -> dict:
     """Resolve the capture parameters for a named camera.
 
@@ -324,19 +331,19 @@ def resolve_camera_config(name: str) -> dict:
     circlet = getattr(config, "circlet", None)
     if name.startswith("cam_") and circlet is not None:
         idx = int(name.split("_", 1)[1])
+        # circlet.cameras entries are plain dicts (YAML list items) -> _cfg_get.
         cam = circlet.cameras[idx]
-        backend = getattr(cam, "backend", getattr(circlet, "backend", "pyav"))
         return {
-            "index": int(getattr(cam, "index", idx)),
-            "backend": backend,
-            "width": int(getattr(cam, "width", circlet.width)),
-            "height": int(getattr(cam, "height", circlet.height)),
-            "fps": int(getattr(cam, "fps", circlet.fps)),
-            "exposure": getattr(cam, "exposure", None),
-            "mock_video_path": getattr(
+            "index": int(_cfg_get(cam, "index", idx)),
+            "backend": _cfg_get(cam, "backend", _cfg_get(circlet, "backend", "pyav")),
+            "width": int(_cfg_get(cam, "width", circlet.width)),
+            "height": int(_cfg_get(cam, "height", circlet.height)),
+            "fps": int(_cfg_get(cam, "fps", circlet.fps)),
+            "exposure": _cfg_get(cam, "exposure", None),
+            "mock_video_path": _cfg_get(
                 cam, "mock_video_path", getattr(hw, "mock_video_path", None)
             ),
-            "mock_fps_jitter": float(getattr(cam, "mock_fps_jitter", 0.0)),
+            "mock_fps_jitter": float(_cfg_get(cam, "mock_fps_jitter", 0.0)),
         }
 
     backend = getattr(hw, "video_backend", "pyav")
