@@ -2,7 +2,6 @@
 
 Capable of finding position, orientation, and icon of armor panels.
 """
-from src.subsystems.video_streaming.video_stream import video_stream
 
 from typing import List, Optional
 
@@ -10,7 +9,7 @@ import cv2 as cv
 import numpy as np
 
 from src.core.module import Module, real
-from src.subsystems.display import CYAN, GREEN, display, BLUE
+from src.subsystems.display import BLUE, CYAN, GREEN, display
 from src.subsystems.vision.classical_detector import (
     armor,
     frame_proccesing,
@@ -83,6 +82,11 @@ class ClassicalDetectorModule(Module[FullStateAutoAimContext]):
         if frame is None:
             # Transitional fallback for engines not yet cut over to feeding
             # ctx.frame from a CameraSource/FrameReader (e.g. the PF engine).
+            # Imported lazily here (not at module load) so the detector can be
+            # imported with no camera configured (CAMERA=NONE) -- the legacy
+            # singleton opens/validates a camera stream at import time.
+            from src.subsystems.video_streaming.video_stream import video_stream
+
             f = video_stream.get_frame()
             frame = np.asarray(f.data)  # f is a Frame at runtime; no-op, no copy
             self.ctx.frame_ts = f.timestamp
@@ -91,7 +95,6 @@ class ClassicalDetectorModule(Module[FullStateAutoAimContext]):
             # set_image copies (so read-only shm frames are safe to draw on);
             # skip it entirely when we're not showing anything.
             display.windows["main"].set_image(frame)
-
 
         contours = frame_proccesing.frame_process(frame)
         lights = armor.bounding_boxes(contours, frame)

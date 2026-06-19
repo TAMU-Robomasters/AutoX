@@ -28,7 +28,14 @@ class Display:
 
     def __init__(self):
         """Initialize the Display singleton."""
-        image = np.zeros((camera_info.height, camera_info.width, 3), dtype=np.uint8)
+        try:
+            height, width = camera_info.height, camera_info.width
+        except AttributeError:
+            # No camera resolution configured (e.g. CAMERA=NONE tooling/tests
+            # that import the detector without selecting a camera profile). Start
+            # with a 1x1 placeholder; set_image() replaces it before any drawing.
+            height, width = 1, 1
+        image = np.zeros((height, width, 3), dtype=np.uint8)
         self.windows = {"main": Window(image)}
 
     def add_window(self, name, image):

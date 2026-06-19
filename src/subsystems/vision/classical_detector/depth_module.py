@@ -6,7 +6,6 @@ difference: the panel *position* (tvec) is taken from the depth camera —
 Orientation (``rvec`` / yaw) still comes from PnP. Intended for RealSense-style
 cameras (``config.hardware.camera_has_depth``).
 """
-from src.subsystems.video_streaming.video_stream import video_stream
 
 from typing import List, Optional
 
@@ -31,6 +30,10 @@ METERS_TO_CM = 100
 
 def _process_pairs(pairs, frame) -> List[ArmorPanel]:
     """Filter light pairs into ArmorPanels, taking position from depth."""
+    # Lazy import: the legacy singleton opens a camera stream at import time, so
+    # importing it at module load would break CAMERA=NONE (mock/sim) paths.
+    from src.subsystems.video_streaming.video_stream import video_stream
+
     panels: List[ArmorPanel] = []
     for pair in pairs:
         panel = armor.armour_corners(pair)
@@ -96,6 +99,8 @@ class ClassicalDepthDetectorModule(Module[Context]):
     @real()
     def _run_detect(self) -> Optional[List[ArmorPanel]]:
         """Process the current video frame and populate *ctx.panels*."""
+        from src.subsystems.video_streaming.video_stream import video_stream
+
         f = video_stream.get_frame()
         frame = f.data
         self.ctx.frame_ts = f.timestamp

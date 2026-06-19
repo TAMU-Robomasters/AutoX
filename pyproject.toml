@@ -44,6 +44,14 @@ dev = [
 gpu = [
     "cupy-cuda12x>=13.6.0",
 ]
+# Linux-only camera capture: PyAV (in-process libav decode, replaces the ffmpeg
+# subprocess) + v4l2-python3 (V4L2 exposure/gain/fps ioctls). Install with
+# `uv sync --extra linux`. Lazy-imported in src/drivers/video_sources.py, so the
+# rest of the codebase (and the mock backend) works without them.
+linux = [
+    "av>=12",
+    "v4l2-python3>=0.3.5",
+]
 
 [tool.ruff.lint]
 select = [
@@ -77,6 +85,10 @@ module = [
     "super_map",
     "iceoryx2",
     "iceoryx2.*",
+    "av",
+    "av.*",
+    "v4l2",
+    "cv2",
 ]
 ignore_missing_imports = true
 

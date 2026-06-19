@@ -79,9 +79,7 @@ class _CameraInfo:
         if self._intrinsics is None:
             import mrcal  # system package; lazy so importing this module is cheap
 
-            intrinsics_dir = (
-                f"{path_to.calibration_presets}/{config.hardware.camera_intrinsics_path}"
-            )
+            intrinsics_dir = f"{path_to.calibration_presets}/{config.hardware.camera_intrinsics_path}"
             model = mrcal.cameramodel(f"{intrinsics_dir}/opencv12.cameramodel")
             _, idata = model.intrinsics()
             fx, fy, cx, cy = (float(x) for x in idata[:4])
@@ -172,10 +170,18 @@ class CameraSource:
         if exposure is None:
             return
         subprocess.run(
-            ["v4l2-ctl", "-d", device,
-             "--set-ctrl", "auto_exposure=1",  # 1 = Manual Mode
-             "--set-ctrl", f"exposure_time_absolute={int(exposure)}"],
-            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            [
+                "v4l2-ctl",
+                "-d",
+                device,
+                "--set-ctrl",
+                "auto_exposure=1",  # 1 = Manual Mode
+                "--set-ctrl",
+                f"exposure_time_absolute={int(exposure)}",
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
     def open(self) -> None:
@@ -189,11 +195,25 @@ class CameraSource:
         self._apply_controls(device)
 
         cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "v4l2", "-input_format", "mjpeg",
-            "-framerate", str(fps), "-video_size", f"{self.width}x{self.height}",
-            "-i", device,
-            "-f", "rawvideo", "-pix_fmt", "bgr24", "-",
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "v4l2",
+            "-input_format",
+            "mjpeg",
+            "-framerate",
+            str(fps),
+            "-video_size",
+            f"{self.width}x{self.height}",
+            "-i",
+            device,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-",
         ]
         self._proc = subprocess.Popen(
             cmd,
@@ -263,6 +283,7 @@ class CameraSource:
         return ts, seq
 
     def close(self) -> None:
+        """Stop capture: kill ffmpeg (EOFs the reader) and join the reader thread."""
         self._running = False
         if self._proc is not None:
             self._proc.kill()  # makes the reader's pipe read hit EOF
@@ -289,49 +310,123 @@ def _open_service(node, payload_type: Type[ctypes.Structure], service_name: str)
     )
 
 
+def resolve_camera_config(name: str) -> dict:
+    """Resolve the capture parameters for a named camera.
+
+    ``name`` is the driver name from the engine's ``drivers`` declaration. The
+    historical single camera ("frames" / anything non-circlet) reads the flat
+    ``config.hardware`` block; circlet ring cameras ("cam_0".."cam_N") read the
+    per-camera ``config.circlet.cameras`` list. Returns the kwargs
+    :func:`src.drivers.video_sources.make_source` expects, plus ``width/height``
+    (so the matching ``FrameReader`` can size its payload identically).
+    """
+    hw = config.hardware
+    circlet = getattr(config, "circlet", None)
+    if name.startswith("cam_") and circlet is not None:
+        idx = int(name.split("_", 1)[1])
+        cam = circlet.cameras[idx]
+        backend = getattr(cam, "backend", getattr(circlet, "backend", "pyav"))
+        return {
+            "index": int(getattr(cam, "index", idx)),
+            "backend": backend,
+            "width": int(getattr(cam, "width", circlet.width)),
+            "height": int(getattr(cam, "height", circlet.height)),
+            "fps": int(getattr(cam, "fps", circlet.fps)),
+            "exposure": getattr(cam, "exposure", None),
+            "mock_video_path": getattr(
+                cam, "mock_video_path", getattr(hw, "mock_video_path", None)
+            ),
+            "mock_fps_jitter": float(getattr(cam, "mock_fps_jitter", 0.0)),
+        }
+
+    backend = getattr(hw, "video_backend", "pyav")
+    fps = int(getattr(hw, "camera_fps", 90))
+    mock_fps = getattr(hw, "mock_fps", None)
+    if backend == "mock" and mock_fps:
+        fps = int(mock_fps)
+    return {
+        "index": int(getattr(hw, "camera_index", 0)),
+        "backend": backend,
+        "width": int(hw.camera_width),
+        "height": int(hw.camera_height),
+        "fps": fps,
+        "exposure": getattr(hw, "camera_exposure", None),
+        "mock_video_path": getattr(hw, "mock_video_path", None),
+        "mock_fps_jitter": float(getattr(hw, "mock_fps_jitter", 0.0)),
+    }
+
+
 class CameraDriver(Driver):
-    """Owns the camera and decodes frames straight into a shared-memory ring buffer."""
+    """Owns one camera and decodes frames straight into a shared-memory ring buffer.
+
+    Backend (pyav | mock | ffmpeg) and per-camera params come from
+    :func:`resolve_camera_config`, threaded through ``provision`` so the same
+    driver class serves the gimbal cam and each circlet ring camera.
+    """
 
     def __init__(
         self,
         service_name: str = DEFAULT_FRAME_SERVICE,
         requires: str = "camera",
         camera_index: Optional[int] = None,
+        params: Optional[dict] = None,
     ) -> None:
         super().__init__(requires=requires)
         self._service_name = service_name
-        self._camera_index = camera_index
+        self._camera_index = camera_index  # legacy; only used if params is None
+        self._params = params
 
     # -- orchestrator factory contract (provision in parent, client in child) --
 
     @staticmethod
     def provision(name: str) -> dict:
-        """Parent-side: allocate this driver's transport (here: a service name)."""
-        return {"service": f"autox/{name}"}
+        """Parent-side: allocate the transport (service name) + resolve cam params."""
+        return {"service": f"autox/{name}", "name": name, **resolve_camera_config(name)}
 
     @classmethod
     def from_conn(cls, conn: dict) -> "CameraDriver":
         """Build the driver process from its provisioned connection info."""
-        return cls(service_name=conn["service"])
+        return cls(service_name=conn["service"], params=conn)
 
     @staticmethod
     def client(conn: dict) -> "FrameReader":
         """Child-side: build + start a consumer handle (a FrameReader)."""
-        reader = FrameReader(conn["service"])
+        reader = FrameReader(
+            conn["service"],
+            node_name=f"autox_reader_{conn.get('name', 'frames')}",
+            width=conn.get("width"),
+            height=conn.get("height"),
+        )
         reader.start()
         return reader
 
     def initialize(self) -> None:  # runs in the child process
+        """Build the capture source + iceoryx2 publisher (child process)."""
         import iceoryx2 as iox2  # type: ignore[import-untyped]
 
-        self._cam = CameraSource(self._camera_index)
+        from src.drivers.video_sources import make_source
+
+        p = self._params or resolve_camera_config(self._service_name.rsplit("/", 1)[-1])
+        if self._camera_index is not None:  # legacy explicit-index path
+            p = {**p, "index": self._camera_index}
+        self._cam = make_source(
+            p["backend"],
+            index=p["index"],
+            width=p["width"],
+            height=p["height"],
+            fps=p["fps"],
+            exposure=p.get("exposure"),
+            mock_video_path=p.get("mock_video_path"),
+            mock_fps_jitter=p.get("mock_fps_jitter", 0.0),
+        )
         self._cam.open()
         self._width, self._height = self._cam.width, self._cam.height
         self._payload_type = make_frame_payload_type(self._width, self._height)
 
+        node_name = f"autox_cam_{self._service_name.rsplit('/', 1)[-1]}"
         self._node = (
             iox2.NodeBuilder.new()
-            .name(iox2.NodeName.new("autox_camera_driver"))
+            .name(iox2.NodeName.new(node_name))
             .create(iox2.ServiceType.Ipc)
         )
         self._service = _open_service(
@@ -341,6 +436,7 @@ class CameraDriver(Driver):
         self._last_seq = -1
 
     def execute(self) -> None:
+        """Copy the newest decoded frame into a loaned shared-memory slot and publish."""
         sample = self._publisher.loan_uninit()
         payload = sample.payload().contents  # writable shared-memory slot
         dst = np.ctypeslib.as_array(payload.pixels).reshape(
@@ -367,16 +463,25 @@ class FrameReader:
         self,
         service_name: str = DEFAULT_FRAME_SERVICE,
         node_name: str = "autox_frame_reader",
+        width: Optional[int] = None,
+        height: Optional[int] = None,
     ) -> None:
         self._service_name = service_name
         self._node_name = node_name
+        # Per-camera resolution (from the driver's conn). Fall back to the flat
+        # config for the historical single-camera path.
+        self._width = int(width) if width is not None else None
+        self._height = int(height) if height is not None else None
         self._started = False
 
     def start(self) -> None:  # call in the consuming process
+        """Create the iceoryx2 node + subscriber (call in the consuming process)."""
         import iceoryx2 as iox2  # type: ignore[import-untyped]
 
-        self._width = int(config.hardware.camera_width)
-        self._height = int(config.hardware.camera_height)
+        if self._width is None:
+            self._width = int(config.hardware.camera_width)
+        if self._height is None:
+            self._height = int(config.hardware.camera_height)
         self._payload_type = make_frame_payload_type(self._width, self._height)
         self._node = (
             iox2.NodeBuilder.new()
@@ -398,6 +503,7 @@ class FrameReader:
         """
         if not self._started:
             self.start()
+        assert self._width is not None and self._height is not None  # set by start()
 
         sample = None
         while True:

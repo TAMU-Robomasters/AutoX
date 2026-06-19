@@ -70,7 +70,18 @@
             filter_team_color: true
             mode: development
             hardware:
-                camera: usb_cam # "realsense" or "zed" or "usb_cam" 
+                camera: usb_cam # "realsense" or "zed" or "usb_cam"
+                # CameraDriver capture backend: pyav (in-process libav, default) |
+                # mock (loop mock_video_path) | ffmpeg (legacy subprocess). pyav +
+                # the v4l2 controls need the optional `linux` extra (uv sync --extra linux).
+                video_backend: pyav
+                # Mock backend source video (looped + resized to the configured
+                # resolution by MockVideoSource). Relative to the repo root. The
+                # sentry clip is git-lfs; if it's an un-pulled pointer the mock
+                # emits synthetic frames instead (run `git lfs pull` for footage).
+                mock_video_path: assets/videos/1920x1080_30-fps_sentry.mp4
+                mock_fps: null          # null -> use camera_fps; else mock target fps
+                mock_fps_jitter: 0.0    # per-frame fps noise fraction (runtime variability)
                 camera_has_depth: false
                 camera_has_pose: false
                 camera_has_acceleration: false
@@ -364,6 +375,22 @@
                 camera_width: 1280
                 camera_height: 720
                 camera_intrinsics_path: "main_sentry_cam" # doesn't have to be actual intrinsics, just a filepath to load from that the webcam class
+
+        # Laptop testing with no real camera: the CameraDriver loops a video file
+        # through the *real* pipeline (PyAV/ffmpeg replaced by MockVideoSource).
+        # Self-contained (1280x720 + the sentry intrinsics so PnP works), but you
+        # can also stack it on a robot profile, e.g. `@MOCK_CAM @SENTRY`
+        # (video_backend stays `mock`; resolution/intrinsics come from the robot).
+        MOCK_CAM:
+            hardware:
+                video_backend: mock
+                camera_index: 0
+                camera_width: 1280
+                camera_height: 720
+                camera_fps: 30
+                camera_exposure: null
+                camera_intrinsics_path: "mrcal_1280x720"
+                lens_correction_mode: normal
         
 # CAMERA=SENTRY_CAM removed -- the sentry camera is now bundled into the @SENTRY
 # robot profile above (likewise @STANDARD / @HERO). Use @SENTRY instead.
