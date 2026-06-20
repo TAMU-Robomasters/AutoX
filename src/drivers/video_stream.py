@@ -25,6 +25,7 @@ borrows are read-only (writing segfaults), so reader views are ``writeable=False
 from __future__ import annotations
 
 import ctypes
+import re
 import signal
 import subprocess
 import sys
@@ -55,6 +56,25 @@ class Intrinsics:
     camera_matrix: np.ndarray
 
 
+def _read_opencv12_intrinsics(path: str) -> list[float]:
+    """Parse the ``intrinsics`` array (``fx,fy,cx,cy`` + distortion) from a cameramodel.
+
+    ``opencv12.cameramodel`` is a plain-text Python-dict file written by mrcal;
+    its ``'intrinsics'`` entry is ``[fx, fy, cx, cy, d0, ..., d11]``. In ``normal``
+    lens mode that's all the runtime needs, so we read it directly with a regex
+    instead of importing mrcal -- keeping the detection path mrcal-free. mrcal is
+    only needed offline for calibration, and its system ``.deb`` may target a
+    different Python than the pinned 3.10 venv (so importing it at runtime breaks
+    on a dev box; see ``plans/08-circlet-extending.md``).
+    """
+    with open(path) as f:
+        text = f.read()
+    match = re.search(r"'intrinsics'\s*:\s*\[([^\]]*)\]", text)
+    if match is None:
+        raise ValueError(f"no 'intrinsics' array found in {path}")
+    return [float(tok) for tok in match.group(1).replace(",", " ").split()]
+
+
 class _CameraInfo:
     """Static camera info read from config + the cameramodel file.
 
@@ -77,11 +97,8 @@ class _CameraInfo:
     def intrinsics(self) -> Intrinsics:
         """Load (and cache) intrinsics from ``<presets>/<name>/opencv12.cameramodel``."""
         if self._intrinsics is None:
-            import mrcal  # system package; lazy so importing this module is cheap
-
             intrinsics_dir = f"{path_to.calibration_presets}/{config.hardware.camera_intrinsics_path}"
-            model = mrcal.cameramodel(f"{intrinsics_dir}/opencv12.cameramodel")
-            _, idata = model.intrinsics()
+            idata = _read_opencv12_intrinsics(f"{intrinsics_dir}/opencv12.cameramodel")
             fx, fy, cx, cy = (float(x) for x in idata[:4])
             camera_matrix = np.array(
                 [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64

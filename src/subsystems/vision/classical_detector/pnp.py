@@ -3,12 +3,13 @@
 import cv2 as cv
 import numpy as np
 
-from src.drivers.video_stream import Intrinsics, camera_info
+from src.drivers.video_stream import camera_info
 
-# camera intrinsics (static; loaded once from the cameramodel file, no camera)
-intrinsics: Intrinsics = camera_info.intrinsics()
-dist = intrinsics.distortion_coefficients
-cam_matrix = intrinsics.camera_matrix
+# Camera intrinsics are fetched lazily on the first PnP solve, not at import.
+# ``camera_info.intrinsics()`` reads the cameramodel through mrcal, which on a dev
+# box whose system Python differs from the pinned 3.10 venv may be unavailable;
+# deferring the call keeps this module (and the whole detector/engine import
+# chain) importable without mrcal. ``camera_info`` caches, so it resolves once.
 
 small_panel_coordinates = np.array(
     [
@@ -62,6 +63,10 @@ def get_cord(panel):
     display and downstream ArmorPanel construction.
     """
     if panel:
+        intrinsics = camera_info.intrinsics()  # cached; reads cameramodel via mrcal
+        cam_matrix = intrinsics.camera_matrix
+        dist = intrinsics.distortion_coefficients
+
         # Use the inner light-bar corners — those are actual pixel observations,
         # not extrapolated from the assumed armor_height_ratio.
         points = np.array(panel.inner_corners, dtype=np.float32).reshape(-1, 2)
