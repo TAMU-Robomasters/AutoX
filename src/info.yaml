@@ -89,7 +89,7 @@
                 flip_camera: false
                 usb_cam_exposure: null  # set to an int (e.g. 300) to enable manual exposure; null = leave auto on
                                         # units are 100µs (e.g. 300 = 30ms shutter)
-                lens_correction_mode: warp  # how lens distortion is handled (usb_cam only):
+                lens_correction_mode: "normal"  # how lens distortion is handled (usb_cam only):
                                             #   "warp"      = remap the whole frame to a pinhole image (mapxy.npy)
                                             #   "unproject" = detect on the raw frame; undistort only the PnP points
                                             #                 (needs splined.cameramodel in the intrinsics dir)
@@ -125,7 +125,7 @@
                 testing:
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
-                disable_all_logging: true # kill switch: logging.disable() everywhere (perf)
+                disable_all_logging: false # kill switch: logging.disable() everywhere (perf)
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.

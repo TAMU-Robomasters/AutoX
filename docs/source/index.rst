@@ -29,6 +29,7 @@ build a tiny engine yourself.
 
    full_state_autoaim_engine
    logging
+   camera-driver
 
 .. toctree::
    :maxdepth: 2

@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# Rebuild Sphinx docs for the current branch and (re)start the tailnet HTTP server.
+# Run from anywhere inside the repo; the script locates the repo root automatically.
+
+set -e
+
+REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+
+echo "==> Building docs (branch: $(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD))"
+"$REPO_ROOT/.venv/bin/sphinx-build" -b html "$REPO_ROOT/docs/source" "$REPO_ROOT/docs/build/html"
+
+echo "==> Restarting autox-docs service"
+systemctl --user restart autox-docs.service
+
+TAILNET_IP="$(tailscale ip -4 2>/dev/null || echo '<tailscale-ip>')"
+echo ""
+echo "Docs live at:"
+echo "  http://${TAILNET_IP}:8000/"
+echo "  http://bob.tail894346.ts.net:8000/"
