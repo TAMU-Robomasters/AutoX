@@ -117,6 +117,13 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
 
         p_center = np.array([x, y, aim_z]) / METERS_TO_CM  # metres
         v_t = np.array([vx, vy, 0.0]) / METERS_TO_CM
+        # Centre acceleration (constant under CA, so valid at firing time);
+        # None for a constant-velocity estimator -> a_t stays None below.
+        a_t = (
+            np.array([estimate.accel[0], estimate.accel[1], 0.0]) / METERS_TO_CM
+            if estimate.accel is not None
+            else None
+        )
 
         d = np.hypot(x, y)  # cm
         if d > self._max_range:
@@ -132,7 +139,7 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
         scale = max(d - r_mean, 0.0) / d if d > 1e-6 else 0.0
         p_circ = np.array([x * scale, y * scale, aim_z]) / METERS_TO_CM
         circ_sol = solve_no_spin(
-            self._barrel, self._v, self._g, p_circ, v_t, tol=self._tol
+            self._barrel, self._v, self._g, p_circ, v_t, tol=self._tol, a_t=a_t
         )
         if not circ_sol["success"] or not (0.0 < circ_sol["time"] < self._max_tof):
             self.log.warning(
@@ -146,7 +153,7 @@ class FullStateShotTimingModule(Module[FullStateAutoAimContext]):
         # Predict the robot pose at the moment the bullet reaches the panel surface
         # (constant-velocity extrapolation of the estimate -- no estimator instance).
         prediction = FullStateKF.predict_ahead(
-            est, t_circ + time_since_estimate + FEEDER_DELAY_S
+            est, t_circ + time_since_estimate + FEEDER_DELAY_S, estimate.accel
         )
         px, py = float(prediction[0]), float(prediction[1])
         theta0, omega = float(prediction[4]), float(prediction[5])

@@ -1,10 +1,15 @@
 """Orchestrator: creates engines, wires shared queues, and starts everything."""
 
+import inspect
+from multiprocessing import Queue
+from typing import Optional
+
 from src.engines.full_state_autoaim import FullStateAutoAimEngine
-from src.toolbox.logger import start_log_listener, stop_log_listener
+from src.toolbox.globals import config
+from src.toolbox.logger import get_logger, start_log_listener, stop_log_listener
 
 
-def launch_system(engine_classes: list) -> list:
+def launch_system(engine_classes: list, plot_queue: Optional[Queue] = None) -> list:
     """Spawn one shared driver process per declared driver, then start engines.
 
     Reads each engine class's ``drivers`` declaration, provisions + spawns one
@@ -13,7 +18,9 @@ def launch_system(engine_classes: list) -> list:
     Returns all started processes (drivers + engines) for join/stop. This is the
     early config-driven orchestrator/watchdog described in CLAUDE.md.
 
-    Engine classes used here must accept a ``driver_registry`` keyword.
+    Engine classes used here must accept a ``driver_registry`` keyword. If
+    ``plot_queue`` is given it is also passed to any engine whose constructor
+    accepts a ``queue`` keyword (the live debug plot — see ``start_engines``).
     """
     # One log queue + listener for all processes: children enqueue records,
     # this (parent) process owns the console/file handlers. Idempotent.
@@ -35,7 +42,10 @@ def launch_system(engine_classes: list) -> list:
         processes.append(driver)
 
     for engine_cls in engine_classes:
-        engine = engine_cls(driver_registry=registry)
+        kwargs: dict = {"driver_registry": registry}
+        if plot_queue is not None and "queue" in inspect.signature(engine_cls).parameters:
+            kwargs["queue"] = plot_queue
+        engine = engine_cls(**kwargs)
         engine._log_queue = log_queue  # inherited by the child at fork (see Engine.run)
         engine.start()
         processes.append(engine)
@@ -50,11 +60,32 @@ def start_engines() -> None:
     it must go through launch_system (which spawns the shared drivers and wires
     the registry).
 
-    NOTE: the old angular-velocity plot (start_plot_engine + a shared Queue) is
-    dropped here for now — launch_system doesn't thread the plot Queue through.
-    Re-add later if needed (the engine already accepts an optional `queue`).
+    A live debug plot (``start_plot_engine``) runs in its own process: the engine
+    pushes the turret-frame transformed panel x (cm) into a shared Queue and the
+    plot shows a rolling window of it. Toggle via ``config.log.live_plot``.
     """
-    processes = launch_system([FullStateAutoAimEngine])
+    import multiprocessing as mp
+    import os
+
+    log = get_logger("orchestrator")
+    plot_proc = None
+    plot_queue: Optional[Queue] = None
+    if config.log.live_plot and not os.environ.get("DISPLAY"):
+        log.warning("live_plot is on but $DISPLAY is unset; skipping the plot "
+                    "(run on the Jetson desktop or with `ssh -X`).")
+    elif config.log.live_plot:
+        from src.engines.plot_engine import start_plot_engine
+
+        plot_queue = mp.Queue(maxsize=4000)
+        plot_proc = mp.Process(
+            target=start_plot_engine,
+            args=(plot_queue,),
+            kwargs={"title": "Transformed panel x (cm)"},
+            daemon=True,
+        )
+        plot_proc.start()
+
+    processes = launch_system([FullStateAutoAimEngine], plot_queue=plot_queue)
     try:
         for p in processes:
             p.join()
@@ -63,4 +94,7 @@ def start_engines() -> None:
             p.terminate()
             p.join()
     finally:
+        if plot_proc is not None:
+            plot_proc.terminate()
+            plot_proc.join()
         stop_log_listener()  # flush any queued records before exit

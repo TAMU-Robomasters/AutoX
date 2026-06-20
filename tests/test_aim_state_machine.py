@@ -60,6 +60,9 @@ def _engine(tmp_path, saved=None):
     engine._last_yaw = 0.0
     engine.alignment_time_ms = 255
     engine.cv_state = CVState.NO_TARGET.value
+    engine._lead = float(config.ballistic.lookahead_time)
+    engine._shoot_gate_threshold = float(config.ballistic.shoot_gate_radius_threshold)
+    engine.gate_radius_cm = float("inf")
     return engine
 
 
@@ -318,22 +321,24 @@ def test_t6_switch_demotes_previous_and_swaps_state(tmp_path):
 
 
 def test_unconfident_solution_aims_but_holds_fire(tmp_path):
-    """is_confident=False forwards pitch/yaw but reports NO_TARGET."""
+    """is_confident=False forwards pitch/yaw but reports AIMING (target, hold fire)."""
     engine = _engine(tmp_path)
+    engine.gate_radius_cm = 0.0  # confident gate; the is_confident=False path must still hold
     engine.ctx.solution = BallisticSolution(
         pitch=0.1, yaw=0.2, alignment_time_ms=255, is_confident=False
     )
 
     engine._publish_solution(CVState.CONTINUOUS_FIRE.value)
 
-    assert engine.cv_state == CVState.NO_TARGET.value
+    assert engine.cv_state == CVState.AIMING.value
     assert engine._last_pitch == 0.1
     assert engine._last_yaw == pytest.approx(0.2 + np.deg2rad(config.ballistic.yaw_offset))
 
 
-def test_confident_solution_uses_active_cv_state(tmp_path):
-    """A confident solution reports the active state's cv_state."""
+def test_confident_solution_below_gate_uses_active_cv_state(tmp_path):
+    """A confident solution with a tight gate radius reports the active state's cv_state."""
     engine = _engine(tmp_path)
+    engine.gate_radius_cm = engine._shoot_gate_threshold - 1.0  # below threshold -> fire
     engine.ctx.solution = BallisticSolution(pitch=0.1, yaw=0.2, alignment_time_ms=120)
 
     engine._publish_solution(CVState.SHOT_TIMING.value)
@@ -342,9 +347,27 @@ def test_confident_solution_uses_active_cv_state(tmp_path):
     assert engine.alignment_time_ms == 120
 
 
-def test_no_solution_keeps_fallback(tmp_path):
-    """ctx.solution=None leaves the fallback aim and NO_TARGET untouched."""
+def test_confident_solution_above_gate_holds_fire(tmp_path):
+    """A confident solution whose gate radius exceeds the threshold reports AIMING."""
     engine = _engine(tmp_path)
+    engine.gate_radius_cm = engine._shoot_gate_threshold + 1.0  # above threshold -> hold
+    engine.ctx.solution = BallisticSolution(pitch=0.1, yaw=0.2, alignment_time_ms=120)
+
+    engine._publish_solution(CVState.CONTINUOUS_FIRE.value)
+
+    assert engine.cv_state == CVState.AIMING.value
+
+
+def test_no_solution_with_target_aims(tmp_path):
+    """ctx.solution=None reports AIMING (have target, hold fire), never NO_TARGET.
+
+    _publish_solution only runs with a target, so a missing solution still means
+    "aiming". The fallback pitch/yaw (set in initialize) is coasted on untouched.
+    """
+    engine = _engine(tmp_path)
+    engine.cv_state = CVState.NO_TARGET.value  # the execute() default before dispatch
+    prev_pitch, prev_yaw = engine._last_pitch, engine._last_yaw
     engine.ctx.solution = None
     engine._publish_solution(CVState.CONTINUOUS_FIRE.value)
-    assert engine.cv_state == CVState.NO_TARGET.value
+    assert engine.cv_state == CVState.AIMING.value
+    assert engine._last_pitch == prev_pitch and engine._last_yaw == prev_yaw

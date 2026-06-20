@@ -27,6 +27,9 @@ class _FakeKF:
         z = float(z_meas) if z_meas is not None else 0.0
         return np.array([0, 200, 0, 0, 0.5, 1.0, z], dtype=np.float32), 0.9
 
+    def accel(self):
+        return None
+
     def update_with_no_observation(self, dt):
         return np.zeros(7, dtype=np.float32), 1.0
 
@@ -61,12 +64,18 @@ def test_position_kf_per_measurement_radius():
     """Observations of two parities back-project to the same centre with their own radii."""
     sys.argv = [sys.argv[0]]
     from src.subsystems.estimation.filters import PositionKF
+    from src.subsystems.estimation.motion_models import ConstantVelocity
 
     center = np.array([40.0, 250.0])
     theta = 0.6
     r_even, r_odd = 30.0, 20.0
 
-    kf = PositionKF(r_pos=1.0, q_vx=1.0, q_vy=1.0, r=23.5, init_std=(50, 50, 5, 5))
+    kf = PositionKF(
+        motion_model=ConstantVelocity(q_vx=1.0, q_vy=1.0),
+        r_pos=1.0,
+        r=23.5,
+        init_std=(50, 50, 5, 5),
+    )
     kf.reinit(center[0], center[1])
 
     for k, r in [(0, r_even), (1, r_odd), (2, r_even), (3, r_odd)]:
@@ -82,9 +91,15 @@ def test_position_kf_default_radius_preserved():
     """r=None keeps the constructor radius (archived-engine behavior)."""
     sys.argv = [sys.argv[0]]
     from src.subsystems.estimation.filters import PositionKF
+    from src.subsystems.estimation.motion_models import ConstantVelocity
 
     center = np.array([0.0, 100.0])
-    kf = PositionKF(r_pos=1.0, q_vx=1.0, q_vy=1.0, r=23.5, init_std=(50, 50, 5, 5))
+    kf = PositionKF(
+        motion_model=ConstantVelocity(q_vx=1.0, q_vy=1.0),
+        r_pos=1.0,
+        r=23.5,
+        init_std=(50, 50, 5, 5),
+    )
     kf.reinit(center[0], center[1])
 
     obs = center + 23.5 * np.array([np.cos(-np.pi / 2), np.sin(-np.pi / 2)])

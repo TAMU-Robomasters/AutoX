@@ -18,7 +18,7 @@ from src.toolbox.globals import config
 
 # Serial read timeout (upper bound) for the transform query/response round-trip.
 # read() returns the instant all bytes land, so the happy-path latency is just
-# the message's transmission time -- at 115200 baud the 69-byte reply takes ~6 ms
+# the message's transmission time -- at 460800 baud the 69-byte reply takes ~1.5 ms
 # to clock in, so this MUST exceed that or read() returns a partial message and
 # the leftover bytes desync the next read (garbage matrix). This bound only
 # applies when a reply is missing entirely.
@@ -33,9 +33,13 @@ TRANSFORM_READ_TIMEOUT_S = 0.02
 class CVState(Enum):
     """State of the computer-vision pipeline as reported to embedded."""
 
-    NO_TARGET: int = 0        # no panel detected; embedded holds fire
+    NO_TARGET: int = 0        # no target at all; embedded holds fire
     SHOT_TIMING: int = 1      # spinning fast; embedded waits for alignment time
     CONTINUOUS_FIRE: int = 2  # slow/no spin; embedded fires freely
+    AIMING: int = 3           # target acquired + aiming, but HOLD FIRE (solution not
+                              # trustworthy: out of range, no arc, or the predicted
+                              # confidence gate failed). FIRMWARE MUST TREAT 3 AS
+                              # HOLD-FIRE (same as NO_TARGET); it only forwards pitch/yaw.
 
 
 class JetsonMessage(Structure):

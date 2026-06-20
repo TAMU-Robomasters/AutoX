@@ -121,6 +121,12 @@ class RobotStateEstimate:
             *filtered* z (state index 6, predicted on no-observation ticks);
             ``None`` until the engine anchors panel parity (state 1 / archived
             paths). The full-state ballistic modules require it.
+        accel: Filtered centre acceleration ``[ax, ay]`` (cm/s^2, turret frame),
+            carried alongside ``value`` (never inserted into it, so the
+            index-based consumers stay valid). ``None`` for a constant-velocity
+            estimator; set when ``config.estimation.motion_model`` is
+            ``constant_acceleration``. The ballistic modules fold it into the
+            lead prediction and the in-flight projectile arc.
     """
 
     value: np.ndarray
@@ -129,6 +135,7 @@ class RobotStateEstimate:
     a_radius: float = 23.5
     b_radius: float = 23.5
     aim_z: Optional[float] = None
+    accel: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -142,12 +149,17 @@ class PanelEstimate:
             height; no config z_offset involved.
         panel_id: The tracked panel's id (None while ids are unassigned).
         timestamp: ``time.perf_counter()`` when the estimate was computed.
+        accel: Filtered panel acceleration ``[ax, ay]`` (cm/s^2, turret frame);
+            ``None`` for a constant-velocity model, set for
+            ``constant_acceleration``. Used by the single-panel ballistic module
+            for the lead prediction and in-flight arc.
     """
 
     value: np.ndarray
     z: float
     panel_id: Optional[int]
     timestamp: float
+    accel: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -186,7 +198,8 @@ class BallisticSolution:
         is_confident: ``False`` means "aim, hold fire" -- the solver could not
             produce a real firing solution (target out of range / no ballistic
             arc), and pitch/yaw are a straight-line tracking aim instead. The
-            engine forwards pitch/yaw but reports ``CVState.NO_TARGET``.
+            engine forwards pitch/yaw but reports ``CVState.AIMING`` (NO_TARGET is
+            reserved for "no target at all").
     """
 
     pitch: float

@@ -65,7 +65,6 @@
                 icon_adaptive_thresh: [ 101, -5 ]
                 icon_tolerance: 55
                 show_icon_filters: false
-            
             our_team_color: 'red' # 'red' or 'blue'
             filter_team_color: true
             mode: development
@@ -114,7 +113,7 @@
                 testing:
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
-                disable_all_logging: true # kill switch: logging.disable() everywhere (perf)
+                disable_all_logging: false # kill switch: logging.disable() everywhere (perf)
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.
@@ -125,6 +124,7 @@
                 backup_count: 3
                 save_frame_to_file: false
                 display_live_frames: false
+                live_plot: true         # spawn the rolling debug plot (transformed panel x)
                 save_depth: false
                 estimated_framerate: 40 # based on yolov8 and recent tests. Not the worst thing if this number is wrong (even very wrong)
                 save_rate: 20 # once every __ frames
@@ -157,6 +157,11 @@
                 feeder_delay_s: -0.07     # s; firmware feeder actuation lead (shot timing).
                                           # negative = feeder fires ahead of computed
                                           # alignment. Per-robot (overridden by robot profiles).
+                # Added to the MEASURED frame delay (frame age in ms) sent to the MCU
+                # so it returns the gimbal transform from the moment of capture. Use
+                # it to trim a systematic bias (the old engine hand-coded "-20").
+                # Result is clamped to the u8 wire range [0, 255].
+                frame_delay_offset_ms: 27  # ms
                 omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
                 # Single-panel solver validity gates (state 1 / 2a): outside
                 # these the engine keeps aiming but holds fire (cv_state NO_TARGET).
@@ -164,6 +169,15 @@
                 max_range: 800            # cm, horizontal
                 solver_tol: 1.0e-4        # LM residual tolerance (metres)
                 lookahead_time: 0.14         # constant offset added to prediction for lead compensation (s); accounts for solver+actuation delay
+                # Shoot-confidence gate (engine-level fire decision). The engine
+                # computes the estimator's predicted 1-sigma position gate radius
+                # at lookahead_time ahead (sqrt(var_x+var_y) of F·P·Fᵀ+Q, cm) and
+                # only reports a firing cv_state when it is BELOW this threshold;
+                # otherwise it reports CVState.AIMING (aim, hold fire). Larger =
+                # more permissive; set very large to effectively disable. The
+                # honest 140ms-ahead 1-sigma is ~7-13cm (see DEPLOY_CVCA.md §4),
+                # but our units/R differ -- TUNE against logged gate radii.
+                shoot_gate_radius_threshold: 25.0   # cm
             communication:
                 timeout: 0.05
                 serial_baudrate: 460800
@@ -194,7 +208,7 @@
                 # Below these the quantity is "equal" and can't anchor parity.
                 height_degenerate_cm: 3.0
                 radii_degenerate_cm: 3.0
-                panel_jump_reinit_cm: 24.0  # single-panel KF re-seed jump threshold
+                panel_jump_reinit_cm: 10000000  # single-panel KF re-seed jump threshold
                 # Radii outlier gate as a confidence percentile (chi-squared, 2
                 # dof). A measurement is dropped if its Mahalanobis distance
                 # exceeds this percentile -- higher = more permissive. 0.9997
@@ -205,16 +219,33 @@
                 # ~constant, so predict ~= hold and the filter rides out flicker.
                 height_kf_q: 0.5           # process-noise std (cm/s-equiv); keep small
                 height_kf_r: 2.0           # measurement-noise std (cm) of the mid-height
-                # Center-position motion model -- applies ONLY to the PositionKF
-                # (robot/panel centre); the angle + height KFs are always
-                # constant-velocity. constant_velocity | constant_acceleration.
-                # CA tracks acceleration internally and derives the position/
-                # velocity process noise from a single jerk driver -> lower
-                # bandwidth (smoother) with some ringing. A/B against CV.
+                # Center-position estimator -- applies ONLY to the centre/panel
+                # POSITION filter; the angle + height KFs are always
+                # constant-velocity. One of:
+                #   constant_velocity      -- single CV KF (the baseline)
+                #   constant_acceleration  -- single CA KF: tracks accel, derives
+                #       pos/vel process noise from one jerk driver -> smoother,
+                #       some ringing.
+                #   imm                    -- per-axis CV+CA IMM (interacting
+                #       multiple model): runs both, blends by model probability;
+                #       smooth in cruise AND responsive in maneuvers, and reports
+                #       a maneuver-aware confidence gate. See imm.py.
                 motion_model: constant_velocity
                 pos_q_jerk: 100.0           # cm/s^3, CA jerk process-noise std (ignored for CV)
                 pos_init_std_accel: 200.0   # cm/s^2, CA initial acceleration std
-
+                # IMM (motion_model: imm) per-axis CV+CA params. Tuned values from
+                # ../estimation_experiments/DEPLOY_CVCA.md, converted SI->cm. The
+                # per-axis measurement noise R is taken from each filter's r_pos
+                # (panel=3cm, centre=5cm), NOT a fixed value, since the centre is
+                # back-projected (yaw noise inflates it) -- measure & retune if off.
+                imm_sigma_w: 25.0           # cm/s^2, CV DWNA accel process-noise std (SI 0.25)
+                imm_sigma_j: 1000.0         # cm/s^3, CA jerk process-noise std (SI 10.0)
+                imm_acc_bound: 300.0        # cm/s^2, uniform CV->CA accel augmentation bound (SI 3.0)
+                imm_p_cv: 0.99              # P(stay CV): quiescent self-transition
+                imm_p_ca: 0.90              # P(stay CA): maneuver self-transition
+                imm_mu0_ca: 0.1            # initial CA (maneuver) model prob; CV gets 1 - this
+                imm_man_bias: 15.0          # cm, maneuver-aware gate inflation (SI 0.15):
+                                            # gate = sqrt(var_x + var_y + (man_bias*p_man)^2)
             zed:
                 resolution: "HD720"       # HD2K, HD1080, HD720, VGA, LAST
                 depth_mode: "PERFORMANCE" # ULTRA, QUALITY, NEURAL, PERFORMANCE, NONE, LAST
@@ -237,7 +268,7 @@
         # Robot profiles are self-contained: a single `@SENTRY` / `@STANDARD` /
         # `@HERO` bundles that robot's camera + classical detector + ballistics.
         # All three currently share the only calibrated camera (mrcal_1280x720);
-        # diverge per robot as cameras get their own intrinsics.
+        # spverge per robot as cameras get their own intrinsics.
         SENTRY:
             bot: sentry
             hardware:

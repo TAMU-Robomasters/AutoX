@@ -82,13 +82,21 @@ class ParticleFilter:
         _ext.reinit(prior[:6].tolist())
         self.estimate = np.zeros(6, dtype=np.float32)
 
+    def accel(self) -> Optional[np.ndarray]:
+        """The particle filter is constant-velocity only -- no acceleration state."""
+        return None
+
     @staticmethod
-    def predict_ahead(state: np.ndarray, dt: float) -> np.ndarray:
+    def predict_ahead(
+        state: np.ndarray, dt: float, accel: Optional[np.ndarray] = None
+    ) -> np.ndarray:
         """Constant-velocity extrapolation of a 6-D state ``dt`` seconds ahead.
 
         ``state``: ``[x, y, vx, vy, theta, omega]``. Pure function of the state
         (no particle cloud needed -- the CV mean extrapolation matches the native
         ``pf_prediction``), so the ballistic modules need no estimator instance.
+        ``accel`` is accepted for the ``FullStateEstimator`` contract but ignored
+        (the CUDA particle filter has no acceleration state).
         Satisfies ``FullStateEstimator.predict_ahead``.
         """
         out = np.array(state, dtype=np.float32).copy()

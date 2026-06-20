@@ -54,10 +54,18 @@ OWNERSHIP: this engine owns the state machine, all disk I/O for constants
 pacing, and the target-lost timeout. Modules receive constants via explicit
 setters at transition time -- they never fetch config/disk/state themselves.
 
-Solution handling: ``solution.is_confident=False`` (out of range) forwards
-pitch/yaw but reports CVState.NO_TARGET so firmware aims without firing.
+Solution handling / shoot decision: when a target exists the engine forwards
+pitch/yaw and picks the wire cv_state in ``_publish_solution``. It reports a
+firing state (SHOT_TIMING / CONTINUOUS_FIRE) only when the ballistic solution is
+confident (in range, real arc) AND the estimator's predicted lead-horizon gate
+radius is below ``ballistic.shoot_gate_radius_threshold``; otherwise it reports
+``CVState.AIMING`` (aim, hold fire). NO_TARGET is reserved for "no target at
+all". The gate radius is the 1-sigma 2-D position spread of the F·P·Fᵀ+Q
+prediction (see ``PositionKF.gate_radius``); it is stored on the engine as
+``gate_radius_cm`` each tick.
 """
 
+import logging
 import time
 from enum import Enum, auto
 from multiprocessing import Queue
@@ -185,6 +193,13 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self._last_yaw: float = 0.0
         self.alignment_time_ms: int = 255
         self.cv_state: int = CVState.NO_TARGET.value
+        # Shoot-confidence gate: the active estimator's predicted 1-sigma position
+        # gate radius (cm) at the lead horizon, refreshed each tick by the active
+        # state pipeline and consumed in _publish_solution. inf = not yet computed
+        # / no track -> hold fire.
+        self._lead: float = float(config.ballistic.lookahead_time)
+        self._shoot_gate_threshold: float = float(config.ballistic.shoot_gate_radius_threshold)
+        self.gate_radius_cm: float = float("inf")
 
         # Frames come from the shared CameraDriver via this FrameReader handle.
         self.frames = self.driver("frames")
@@ -461,6 +476,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             self.radii_estimator.run()
             self.height_delta_estimator.run()
         self.single_panel_estimation.run()
+        self.gate_radius_cm = self.single_panel_estimation.gate_radius(self._lead)
         self.single_panel_ballistics.run()
         self._check_constants_converged(name)  # T1
         return CVState.CONTINUOUS_FIRE.value
@@ -468,6 +484,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
     def _run_full_state_init(self, name: str) -> int:
         """State 2a: single-panel aiming until parity can be anchored."""
         self.single_panel_estimation.run()
+        self.gate_radius_cm = self.single_panel_estimation.gate_radius(self._lead)
         self.single_panel_ballistics.run()
         self._try_anchor(name)  # T2
         return CVState.CONTINUOUS_FIRE.value
@@ -478,7 +495,10 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             self.panel_tracking.run()
         self.estimation.run()
         if self.ctx.estimate is None:
-            return CVState.NO_TARGET.value
+            # We still have a target, just no usable estimate this tick: aim, hold
+            # fire. NO_TARGET is reserved for "no target at all" (target_robot None).
+            return CVState.AIMING.value
+        self.gate_radius_cm = self.estimation.estimator.gate_radius(self._lead)
         omega = abs(float(self.ctx.estimate.value[5]))
         if omega > config.ballistic.omega_spin_threshold:
             self.shot_timing.run()
@@ -503,6 +523,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         self.ctx.solution = None  # never reuse a stale solution
         self.alignment_time_ms = 255
         self.cv_state = CVState.NO_TARGET.value
+        self.gate_radius_cm = float("inf")  # refreshed by the active state pipeline
 
         frame = self.frames.latest()
         if frame is not None and frame.seq != self._last_seq:
@@ -581,7 +602,12 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
 
         # Transform panel poses into the turret frame via the MCU.
         frame_ts = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
-        frame_delay_ms = int((time.perf_counter() - frame_ts) * 1000)
+        measured_delay_ms = int((time.perf_counter() - frame_ts) * 1000)
+        # Tunable bias trim (config.ballistic.frame_delay_offset_ms); clamped to
+        # the u8 wire range so a large/negative offset can't wrap the byte.
+        frame_delay_ms = int(
+            np.clip(measured_delay_ms + config.ballistic.frame_delay_offset_ms, 0, 255)
+        )
         transformation_data = self.mcu.get_transformation(frame_delay_ms)
         if transformation_data is None:
             self.log.warning("no transformation data from embedded; predicting only")
@@ -590,6 +616,21 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             _turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
             _transform_panels_to_turret_frame(panels, camera_to_turret_matrix)
             self.ctx.new_observation = True
+            self._plot_transformed_x(panels)
+
+    def _plot_transformed_x(self, panels) -> None:
+        """Push the closest panel's turret-frame x (cm) to the live debug plot.
+
+        No-op unless a plot queue was wired in (``config.log.live_plot``). Uses
+        the closest panel since that's what single-panel aiming tracks.
+        """
+        if self._queue is None or not panels:
+            return
+        closest = min(panels, key=lambda p: float(np.linalg.norm(p.position)))
+        try:
+            self._queue.put_nowait(float(closest.position[0]))
+        except Exception:  # full queue: drop the sample, never block the loop
+            pass
 
     def _pace(self, start: float) -> None:
         """Sleep only enough to keep the loop under the ``loop_hz`` cap."""
@@ -598,29 +639,54 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             time.sleep(remaining)
 
     def _publish_solution(self, active_cv_state: int) -> None:
-        """Stage ctx.solution for the MCU (uniform across states).
+        """Stage ctx.solution for the MCU and make the engine-level shoot decision.
 
-        No solution keeps the fallback pitch/yaw + NO_TARGET; an unconfident
-        solution (out of range) forwards its pitch/yaw but reports NO_TARGET so
-        firmware aims without firing.
+        We have a target here (this runs only when ``target_robot`` is set), so
+        the wire never carries NO_TARGET from this path -- it's either a firing
+        cv_state or ``AIMING`` (aim, hold fire). NO_TARGET is reserved for "no
+        target at all" (``target_robot`` None, handled by the execute() default).
+
+        With no fresh solution this tick we still have a target, so we report
+        ``AIMING`` and coast on the last pitch/yaw. With a solution we forward its
+        pitch/yaw and fire only when both hold:
+          * the ballistic solution is confident (in range, real arc), and
+          * the predicted lead-horizon gate radius is below the configured
+            threshold (the estimate is tight enough to trust).
+        Otherwise -> ``AIMING`` (firmware aims without firing).
         """
         solution = self.ctx.solution
         if solution is None:
+            self.cv_state = CVState.AIMING.value  # target present, no solution: hold fire
             return
 
         self._last_pitch = solution.pitch
         self._last_yaw = solution.yaw + np.deg2rad(config.ballistic.yaw_offset)
         self.alignment_time_ms = solution.alignment_time_ms
-        self.cv_state = active_cv_state if solution.is_confident else CVState.NO_TARGET.value
+        self.cv_state = self._shoot_decision(active_cv_state, solution.is_confident)
+
+    def _shoot_decision(self, active_cv_state: int, is_confident: bool) -> int:
+        """Map the active state's fire mode to a wire cv_state via the confidence gate."""
+        if not is_confident:
+            return CVState.AIMING.value  # out of range / no ballistic arc
+        if self.gate_radius_cm > self._shoot_gate_threshold:
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug(
+                    "gate radius %.1fcm > %.1fcm threshold -> AIMING (hold fire)",
+                    self.gate_radius_cm,
+                    self._shoot_gate_threshold,
+                )
+            return CVState.AIMING.value
+        return active_cv_state
 
     def update(self) -> None:
         """Send the latest solution to the MCU and service the display."""
         self.log.debug(
-            "to embedded: pitch=%.2fdeg yaw=%.2fdeg align=%dms cv_state=%d",
+            "to embedded: pitch=%.2fdeg yaw=%.2fdeg align=%dms cv_state=%d gate=%.1fcm",
             np.rad2deg(self._last_pitch),
             np.rad2deg(self._last_yaw),
             self.alignment_time_ms,
             self.cv_state,
+            self.gate_radius_cm,
         )
         self.mcu.send_solution(
             pitch=self._last_pitch,

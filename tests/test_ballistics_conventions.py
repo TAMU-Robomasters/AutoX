@@ -168,7 +168,7 @@ def _shot_timing_module(estimate, predictor, monkeypatch, now):
         estimate=estimate, target_robot=EnemyRobot(name="standard")
     )
     module = st.FullStateShotTimingModule(ctx)
-    monkeypatch.setattr(st.FullStateKF, "predict_ahead", lambda state, dt: predictor.state)
+    monkeypatch.setattr(st.FullStateKF, "predict_ahead", lambda state, dt, accel=None: predictor.state)
     return module, st
 
 
@@ -257,7 +257,7 @@ def _continuous_fire_module(estimate, predictor, monkeypatch, now):
         estimate=estimate, target_robot=EnemyRobot(name="standard")
     )
     module = cf.FullStateContinuousFireModule(ctx)
-    monkeypatch.setattr(cf.FullStateKF, "predict_ahead", lambda state, dt: predictor.state)
+    monkeypatch.setattr(cf.FullStateKF, "predict_ahead", lambda state, dt, accel=None: predictor.state)
     return module, cf
 
 

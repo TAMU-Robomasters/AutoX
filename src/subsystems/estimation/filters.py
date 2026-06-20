@@ -4,8 +4,10 @@ Shared estimation primitives used by both the full-state pipeline
 (``full_state/kf.py``, ``full_state/pf.py``) and the single-panel pipeline
 (``single_panel.py``). Also the home of the two estimator ``Protocol``s
 (``FullStateEstimator`` / ``SinglePanelEstimator``) and the static
-constant-velocity ``predict_ahead`` extrapolators the ballistic modules use to
-project a state forward without holding an estimator instance.
+``predict_ahead`` extrapolators the ballistic modules use to project a state
+forward (constant-velocity, or constant-acceleration when handed the filtered
+accel) without holding an estimator instance. The CV/CA motion model itself is a
+composed strategy -- see ``motion_models.py``.
 
 Companion to ``ParticleFilter`` (`full_state/particle_filter.py`): instead of a
 single 6-D particle filter over ``[x, y, vx, vy, theta, omega]``, this module
@@ -37,6 +39,25 @@ from typing import Optional, Protocol
 
 import numpy as np
 from filterpy.kalman import KalmanFilter
+
+from src.subsystems.estimation.motion_models import (
+    CONSTANT_ACCELERATION,
+    CONSTANT_VELOCITY,
+    ConstantVelocity,
+    MotionModel,
+)
+
+__all__ = [
+    "AngleKF",
+    "PositionKF",
+    "HeightKF",
+    "FullStateKF",
+    "FullStateEstimator",
+    "SinglePanelEstimator",
+    "CenterPositionEstimator",
+    "CONSTANT_VELOCITY",
+    "CONSTANT_ACCELERATION",
+]
 
 #NOTE: get rid of commented code  the old modulo thing 
 
@@ -237,60 +258,38 @@ class AngleKF:
         return float(self._kf.x[0]) % self.step_size
 
 
-CONSTANT_VELOCITY = "constant_velocity"
-CONSTANT_ACCELERATION = "constant_acceleration"
-
-
 class PositionKF:
     """Kalman filter for a robot's 2-D centre position (CV or CA motion).
 
     Measurements are panel observations ``(x_obs, y_obs, yaw_obs)``,
     back-projected to the robot's centre via the marker orbit radius ``r``.
 
-    Two motion models, selectable via ``model``; this is the *only* place the
-    CV/CA switch lives (the angle/height filters are always constant-velocity):
-
-    - ``constant_velocity`` -- internal state ``[x, y, vx, vy]``. ``q_vx``/``q_vy``
-      are the per-axis white-noise-acceleration spectral densities (the noise
-      enters at the velocity level).
-    - ``constant_acceleration`` -- internal state ``[x, y, vx, vy, ax, ay]``. The
-      acceleration is tracked but the **only** process-noise driver is jerk
-      (``q_jerk``): position and velocity process noise are *derived* from it via
-      the standard continuous white-noise-jerk Q. Lower bandwidth (smoother) at
-      the cost of some ringing -- the intended A/B against CV.
+    The motion model (constant-velocity vs constant-acceleration) is supplied as
+    a ``MotionModel`` strategy (``motion_models.py``) -- the *only* place the
+    CV/CA switch lives (the angle/height filters are always constant-velocity).
+    This class owns just the shared *measurement* half (back-projection, ``H``,
+    ``R``) and delegates all dynamics (``F``/``Q``/seed/dim/accel) to the model.
 
     Either way ``estimate()`` returns just ``[x, y, vx, vy]`` -- the acceleration
     stays internal, so every downstream consumer (FullStateKF's 7-D layout,
-    ballistics) is unaffected by the model choice.
+    ballistics) is unaffected by the model choice. When the model tracks it, the
+    acceleration is read back via ``accel()`` and carried *alongside* the state
+    (on the estimate dataclasses), never inserted into the published vector.
     """
 
     def __init__(
         self,
+        motion_model: MotionModel,
         r_pos: float = 20.0,
-        q_vx: float = 100.0,
-        q_vy: float = 100.0,
         r: float = 23.5,
         init_std: tuple[float, float, float, float] = (100.0, 100.0, 10.0, 10.0),
-        model: str = CONSTANT_VELOCITY,
-        q_jerk: float = 30.0,
-        init_std_accel: float = 50.0,
     ) -> None:
-        if model not in (CONSTANT_VELOCITY, CONSTANT_ACCELERATION):
-            raise ValueError(
-                f"PositionKF model must be {CONSTANT_VELOCITY!r} or "
-                f"{CONSTANT_ACCELERATION!r}, got {model!r}"
-            )
+        self.motion_model = motion_model
         self.r_pos = r_pos
-        self.q_vx = q_vx
-        self.q_vy = q_vy
         self.r = r
         self.init_std = np.array(init_std, dtype=np.float64)
-        self.model = model
-        self.q_jerk = q_jerk
-        self.init_std_accel = init_std_accel
-        self._ca = model == CONSTANT_ACCELERATION
 
-        dim_x = 6 if self._ca else 4
+        dim_x = motion_model.dim
         self._kf = KalmanFilter(dim_x=dim_x, dim_z=2)
         self._kf.H = np.zeros((2, dim_x))
         self._kf.H[0, 0] = 1.0
@@ -300,13 +299,8 @@ class PositionKF:
 
     def reinit(self, x0: float, y0: float, vx0: float = 0.0, vy0: float = 0.0) -> None:
         """Re-seed the state at ``(x0, y0, vx0, vy0)`` (accel starts at 0 in CA)."""
-        if self._ca:
-            self._kf.x = np.array([x0, y0, vx0, vy0, 0.0, 0.0], dtype=np.float64)
-            var = np.concatenate([self.init_std**2, [self.init_std_accel**2] * 2])
-            self._kf.P = np.diag(var)
-        else:
-            self._kf.x = np.array([x0, y0, vx0, vy0], dtype=np.float64)
-            self._kf.P = np.diag(self.init_std**2)
+        self._kf.x = self.motion_model.seed_state(x0, y0, vx0, vy0)
+        self._kf.P = self.motion_model.seed_cov(self.init_std)
 
     @staticmethod
     def back_project(x_obs: float, y_obs: float, yaw_obs: float, r: float) -> tuple[float, float]:
@@ -315,59 +309,38 @@ class PositionKF:
         cy = y_obs - r * np.sin(yaw_obs)
         return cx, cy
 
-    def _cv_matrices(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
-        """``(F, Q)`` for the ``[x, y, vx, vy]`` constant-velocity model."""
-        F = np.array(
-            [
-                [1.0, 0.0, dt, 0.0],
-                [0.0, 1.0, 0.0, dt],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        )
-        qx, qy = self.q_vx**2, self.q_vy**2
-        Q = np.array(
-            [
-                [qx * dt**3 / 3.0, 0.0, qx * dt**2 / 2.0, 0.0],
-                [0.0, qy * dt**3 / 3.0, 0.0, qy * dt**2 / 2.0],
-                [qx * dt**2 / 2.0, 0.0, qx * dt, 0.0],
-                [0.0, qy * dt**2 / 2.0, 0.0, qy * dt],
-            ]
-        )
-        return F, Q
-
-    def _ca_matrices(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
-        """``(F, Q)`` for the ``[x, y, vx, vy, ax, ay]`` constant-acceleration model.
-
-        State is block-ordered (pos, vel, accel) so the first four entries stay
-        ``[x, y, vx, vy]``. Process noise is the continuous white-noise-jerk Q --
-        a single jerk driver ``q_jerk`` whose effect on the position and velocity
-        blocks is derived analytically (no independent pos/vel noise).
-        """
-        F = np.eye(6)
-        F[0, 2] = dt
-        F[1, 3] = dt
-        F[2, 4] = dt
-        F[3, 5] = dt
-        F[0, 4] = 0.5 * dt**2
-        F[1, 5] = 0.5 * dt**2
-
-        q = self.q_jerk**2
-        d5, d4, d3, d2 = dt**5, dt**4, dt**3, dt**2
-        Q = np.zeros((6, 6))
-        # Per axis the [p, v, a] white-noise-jerk block; x uses (0,2,4), y (1,3,5).
-        for ip, iv, ia in ((0, 2, 4), (1, 3, 5)):
-            Q[ip, ip] = q * d5 / 20.0
-            Q[ip, iv] = Q[iv, ip] = q * d4 / 8.0
-            Q[ip, ia] = Q[ia, ip] = q * d3 / 6.0
-            Q[iv, iv] = q * d3 / 3.0
-            Q[iv, ia] = Q[ia, iv] = q * d2 / 2.0
-            Q[ia, ia] = q * dt
-        return F, Q
-
     def _predict(self, dt: float) -> None:
-        F, Q = self._ca_matrices(dt) if self._ca else self._cv_matrices(dt)
-        self._kf.predict(F=F, Q=Q)
+        self._kf.predict(
+            F=self.motion_model.transition(dt), Q=self.motion_model.process_noise(dt)
+        )
+
+    def accel(self) -> Optional[np.ndarray]:
+        """Filtered ``[ax, ay]`` acceleration (cm/s^2), or ``None`` for a CV model."""
+        return self.motion_model.accel(self._kf.x)
+
+    def predict_pos_var(self, dt: float) -> tuple[float, float]:
+        """Predicted ``(var_x, var_y)`` ``dt`` ahead, *including* process noise.
+
+        Mirrors ``IMM.predict_pos_var(dt, with_Q=True)`` from the CV+CA tuning
+        harness: ``Pp = F P F^T + Q``, then read the position diagonals. The
+        ``+Q`` is essential -- it grows the uncertainty over the horizon; the
+        filtered covariance ``P`` alone omits it and reads over-confident.
+        """
+        F = self.motion_model.transition(dt)
+        Q = self.motion_model.process_noise(dt)
+        Pp = F @ self._kf.P @ F.T + Q
+        return float(Pp[0, 0]), float(Pp[1, 1])
+
+    def gate_radius(self, dt: float) -> float:
+        """1-sigma 2-D position gate radius ``dt`` ahead (cm): ``sqrt(var_x + var_y)``.
+
+        The engine compares this against a configurable threshold to decide
+        whether the firing solution is trustworthy enough to shoot. Single-filter
+        form of the IMM-doc gate (no maneuver-bias term -- that needs an IMM's
+        model probability, which a single CV/CA filter does not have).
+        """
+        var_x, var_y = self.predict_pos_var(dt)
+        return float(np.sqrt(var_x + var_y))
 
     def _correct(self, cx: float, cy: float) -> float:
         """Position-only measurement update. Returns the NIS."""
@@ -403,15 +376,28 @@ class PositionKF:
         return np.array(self._kf.x[:4], dtype=np.float64).flatten()
 
     @staticmethod
-    def predict_ahead(state: np.ndarray, dt: float) -> np.ndarray:
-        """Constant-velocity extrapolation of a ``[x, y, vx, vy]`` state ``dt`` ahead.
+    def predict_ahead(
+        state: np.ndarray, dt: float, accel: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Extrapolate a ``[x, y, vx, vy]`` state ``dt`` ahead, optionally under constant accel.
 
-        Pure function of the state -- no instance needed -- so the single-panel
-        ballistic module can project an estimate forward without holding the KF.
-        Satisfies ``SinglePanelEstimator.predict_ahead``.
+        With ``accel=None`` this is constant-velocity (``x += vx*dt``); with a
+        ``[ax, ay]`` it is constant-acceleration (``x += vx*dt + ax*dt^2/2``,
+        ``vx += ax*dt``). Pure function of the state -- no instance needed -- so
+        the single-panel ballistic module can project an estimate forward without
+        holding the KF. Satisfies ``SinglePanelEstimator.predict_ahead``.
         """
         x, y, vx, vy = (float(v) for v in state[:4])
-        return np.array([x + vx * dt, y + vy * dt, vx, vy], dtype=np.float32)
+        ax, ay = (0.0, 0.0) if accel is None else (float(accel[0]), float(accel[1]))
+        return np.array(
+            [
+                x + vx * dt + 0.5 * ax * dt**2,
+                y + vy * dt + 0.5 * ay * dt**2,
+                vx + ax * dt,
+                vy + ay * dt,
+            ],
+            dtype=np.float32,
+        )
 
 
 class HeightKF:
@@ -470,17 +456,71 @@ class HeightKF:
         return np.array(self._kf.x, dtype=np.float64).flatten()
 
 
+class CenterPositionEstimator(Protocol):
+    """The centre/panel 2-D position estimator interface (CV/CA KF or the IMM).
+
+    Both ``PositionKF`` (single CV/CA model) and ``imm.PositionIMM`` (per-axis
+    CV+CA IMM) satisfy this structurally, so either can be the position half of
+    ``FullStateKF`` or the single-panel tracker -- selected by
+    ``config.estimation.motion_model`` via ``imm.make_position_estimator``. State
+    layout: ``[x, y, vx, vy]`` (cm, cm/s), turret frame.
+    """
+
+    r: float
+    """Default back-projection orbit radius (cm); overridden per ``update``."""
+
+    def reinit(self, x0: float, y0: float, vx0: float = 0.0, vy0: float = 0.0) -> None:
+        """Re-seed the state at ``(x0, y0, vx0, vy0)`` (accel, if tracked, at 0)."""
+        ...
+
+    def update(
+        self,
+        dt: float,
+        x_obs: float,
+        y_obs: float,
+        yaw_obs: float,
+        r: Optional[float] = None,
+    ) -> tuple[np.ndarray, float]:
+        """Predict ``dt``, correct with a back-projected panel obs; return (estimate, nis)."""
+        ...
+
+    def update_with_no_observation(self, dt: float) -> tuple[np.ndarray, None]:
+        """Predict only (no observation this frame)."""
+        ...
+
+    def estimate(self) -> np.ndarray:
+        """Return the published ``[x, y, vx, vy]`` state."""
+        ...
+
+    def accel(self) -> Optional[np.ndarray]:
+        """Filtered/blended ``[ax, ay]`` accel (cm/s^2), or ``None`` if not modelled."""
+        ...
+
+    def predict_pos_var(self, dt: float) -> tuple[float, float]:
+        """Predicted ``(var_x, var_y)`` ``dt`` ahead, including process noise."""
+        ...
+
+    def gate_radius(self, dt: float) -> float:
+        """1-sigma 2-D position gate radius (cm) ``dt`` ahead (maneuver-aware for the IMM)."""
+        ...
+
+
 class FullStateKF:
-    """Combine ``PositionKF`` + ``AngleKF`` + ``HeightKF`` into a ``ParticleFilter``-compatible estimator.
+    """Combine a centre-position estimator + ``AngleKF`` + ``HeightKF`` into a ``ParticleFilter``-compatible estimator.
 
     State: 7-D ``[x, y, vx, vy, theta, omega, z]`` -- the first six match
     ``ParticleFilter`` (consumers index 0,1,4,5), with the panel-center height
     ``z`` appended at index 6. Drop-in wherever a ``ParticleFilter`` is injected
-    via ``set_estimator`` (estimation, shot-timing, continuous-fire modules).
+    via ``set_estimator`` (estimation, shot-timing, continuous-fire modules). The
+    position half is any ``CenterPositionEstimator`` (single CV/CA ``PositionKF``
+    or the per-axis ``PositionIMM``); the angle/height filters are always CV.
     """
 
     def __init__(
-        self, position_kf: PositionKF, angle_kf: AngleKF, height_kf: HeightKF
+        self,
+        position_kf: CenterPositionEstimator,
+        angle_kf: AngleKF,
+        height_kf: HeightKF,
     ) -> None:
         self.position_kf = position_kf
         self.angle_kf = angle_kf
@@ -537,18 +577,30 @@ class FullStateKF:
             self.height_kf.reinit(float(prior[6]))
         self.estimate = np.zeros(7, dtype=np.float32)
 
+    def accel(self) -> Optional[np.ndarray]:
+        """Filtered centre ``[ax, ay]`` acceleration (cm/s^2), or ``None`` for a CV model."""
+        return self.position_kf.accel()
+
+    def gate_radius(self, dt: float) -> float:
+        """1-sigma centre-position gate radius ``dt`` ahead (cm); see ``PositionKF.gate_radius``."""
+        return self.position_kf.gate_radius(dt)
+
     @staticmethod
-    def predict_ahead(state: np.ndarray, dt: float) -> np.ndarray:
-        """Constant-velocity extrapolation of a 7-D state ``dt`` seconds ahead.
+    def predict_ahead(
+        state: np.ndarray, dt: float, accel: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Extrapolate a 7-D state ``dt`` seconds ahead (constant accel if given).
 
         ``state``: ``[x, y, vx, vy, theta, omega, z]``. Position advances with its
-        velocity, theta with omega, z is held (the ``HeightKF`` random walk has
-        no velocity). Pure function of the state -- no instance needed -- so the
+        velocity (and ``accel`` if provided -- see ``PositionKF.predict_ahead``),
+        theta with omega, z is held (the ``HeightKF`` random walk has no velocity).
+        The acceleration is assumed constant over the horizon, so it does not
+        change. Pure function of the state -- no instance needed -- so the
         full-state ballistic modules project an estimate forward without holding
         an estimator. Satisfies ``FullStateEstimator.predict_ahead``.
         """
         out = np.array(state, dtype=np.float32).copy()
-        out[:4] = PositionKF.predict_ahead(state, dt)
+        out[:4] = PositionKF.predict_ahead(state, dt, accel)
         out[4] = float(state[4]) + float(state[5]) * dt  # theta += omega * dt
         return out
 
@@ -590,9 +642,15 @@ class FullStateEstimator(Protocol):
         """Predict only; return (estimate, confidence)."""
         ...
 
+    def accel(self) -> Optional[np.ndarray]:
+        """Filtered centre ``[ax, ay]`` accel (cm/s^2), or ``None`` if not modelled."""
+        ...
+
     @staticmethod
-    def predict_ahead(state: np.ndarray, dt: float) -> np.ndarray:
-        """Constant-velocity extrapolation of ``state`` ``dt`` ahead, no side effects."""
+    def predict_ahead(
+        state: np.ndarray, dt: float, accel: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Extrapolate ``state`` ``dt`` ahead (constant accel if ``accel`` given), no side effects."""
         ...
 
 
@@ -627,7 +685,13 @@ class SinglePanelEstimator(Protocol):
         """Predict only (no observation this frame)."""
         ...
 
+    def accel(self) -> Optional[np.ndarray]:
+        """Filtered ``[ax, ay]`` accel (cm/s^2), or ``None`` if not modelled."""
+        ...
+
     @staticmethod
-    def predict_ahead(state: np.ndarray, dt: float) -> np.ndarray:
-        """Constant-velocity extrapolation of ``[x, y, vx, vy]`` ``dt`` ahead."""
+    def predict_ahead(
+        state: np.ndarray, dt: float, accel: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Extrapolate ``[x, y, vx, vy]`` ``dt`` ahead (constant accel if ``accel`` given)."""
         ...

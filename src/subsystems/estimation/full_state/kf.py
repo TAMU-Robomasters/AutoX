@@ -1,8 +1,9 @@
 """Kalman-filter estimation module.
 
 Feeds the target robot's tracked panel observation into a ``FullStateKF`` (a
-pair of constant-velocity Kalman filters -- ``PositionKF`` for ``[x, y, vx,
-vy]`` and ``AngleKF`` for ``[theta, omega]``) and emits a
+centre-position estimator for ``[x, y, vx, vy]`` -- CV/CA ``PositionKF`` or the
+per-axis CV+CA ``PositionIMM``, chosen by ``config.estimation.motion_model`` --
+plus ``AngleKF`` for ``[theta, omega]`` and ``HeightKF`` for ``z``) and emits a
 ``RobotStateEstimate``.
 
 Contract (units/frames: turret frame, cm, angles from +x CCW -- see
@@ -34,8 +35,8 @@ from src.subsystems.estimation.filters import (
     AngleKF,
     FullStateKF,
     HeightKF,
-    PositionKF,
 )
+from src.subsystems.estimation.imm import make_position_estimator
 from src.toolbox.globals import config
 from src.types.autoaim import (
     ArmorPanel,
@@ -46,16 +47,11 @@ from src.types.autoaim import (
 
 
 def _default_full_state_kf(r: float = 23.5) -> FullStateKF:
-    """Create a FullStateKF with the same hyperparameters as ``_default_particle_filter``."""
-    position_kf = PositionKF(
+    """Create a FullStateKF; the centre-position backend follows config.estimation.motion_model."""
+    position_kf = make_position_estimator(
         r_pos=5.0,
-        q_vx=50.0,
-        q_vy=50.0,
         r=r,
         init_std=(100.0, 100.0, 10.0, 10.0),
-        model=str(config.estimation.motion_model),
-        q_jerk=float(config.estimation.pos_q_jerk),
-        init_std_accel=float(config.estimation.pos_init_std_accel),
     )
     angle_kf = AngleKF(
         N=4,
@@ -240,6 +236,7 @@ class KalmanFilterEstimationModule(Module[FullStateAutoAimContext]):
             a_radius=self._r_even,
             b_radius=self._r_odd,
             aim_z=aim_z,
+            accel=self.estimator.accel(),
         )
 
     @mock

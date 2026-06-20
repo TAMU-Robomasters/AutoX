@@ -15,7 +15,7 @@ Validity gates (config.ballistic): horizontal range < ``max_range``, solver
 residual < ``solver_tol``, time of flight in (0, ``max_time_of_flight``).
 Outside them the module still emits a straight-line tracking aim so the turret
 stays on target, with ``is_confident=False`` so the engine reports
-``CVState.NO_TARGET`` and the firmware holds fire.
+``CVState.AIMING`` and the firmware holds fire.
 """
 
 import time
@@ -71,18 +71,31 @@ class SinglePanelBallisticModule(Module[FullStateAutoAimContext]):
         if xy_estimate is None:
             return None
 
-        # Constant-velocity advance from estimate time to now (cm).
+        # Advance from estimate time to firing time (cm); constant-velocity, or
+        # constant-acceleration when the estimator tracks accel (accel != None).
         dt = max(time.perf_counter() - xy_estimate.timestamp, 0.0)
-        x, y, vx, vy = (float(v) for v in PositionKF.predict_ahead(xy_estimate.value, dt + BALLISTIC.lookahead_time))
+        x, y, vx, vy = (
+            float(v)
+            for v in PositionKF.predict_ahead(
+                xy_estimate.value, dt + BALLISTIC.lookahead_time, xy_estimate.accel
+            )
+        )
 
         p_t = np.array([x, y, xy_estimate.z]) / METERS_TO_CM  # metres
         v_t = np.array([vx, vy, 0.0]) / METERS_TO_CM
+        # Accel is constant under CA, so it carries to firing time unchanged; the
+        # solver folds it into the in-flight arc. None (CV) -> a_t stays None.
+        a_t = (
+            np.array([xy_estimate.accel[0], xy_estimate.accel[1], 0.0]) / METERS_TO_CM
+            if xy_estimate.accel is not None
+            else None
+        )
 
         if np.hypot(x, y) > self._max_range:
             self.log.warning("panel out of range (%.0fcm) -- tracking only", np.hypot(x, y))
             return self._track_only(p_t)
 
-        result = solve_no_spin(self._barrel, self._v, self._g, p_t, v_t, tol=self._tol)
+        result = solve_no_spin(self._barrel, self._v, self._g, p_t, v_t, tol=self._tol, a_t=a_t)
         if not result["success"] or not (0.0 < result["time"] < self._max_tof):
             self.log.warning(
                 "no valid solution (residual=%.4f, t=%.2fs) -- tracking only",

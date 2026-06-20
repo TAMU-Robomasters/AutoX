@@ -59,6 +59,7 @@ def _cascade_solve(
     a_radius: float,
     b_radius: float,
     tol: float = 1e-4,
+    a_t: np.ndarray | None = None,
 ) -> Dict:
     """Cascade LM solve for [yaw, pitch, travel_time] to hit the best panel.
 
@@ -77,11 +78,13 @@ def _cascade_solve(
         a_radius: Orbit radius of even-parity panels (0 & 2) in metres.
         b_radius: Orbit radius of odd-parity panels (1 & 3) in metres.
         tol: Residual convergence tolerance.
+        a_t: Optional robot-centre acceleration [ax, ay, az] in m/s^2 (None = CV);
+            folded into the in-flight projectile arc in both cascade stages.
 
     Returns:
         dict with keys: success, yaw (MCU convention), pitch, time, panel, residual.
     """
-    ns = solve_no_spin(b, s, g, p_t, v_t, tol=tol)
+    ns = solve_no_spin(b, s, g, p_t, v_t, tol=tol, a_t=a_t)
 
     if ns["success"]:
         panel = select_panel_at_time(p_t, v_t, tht_t, omg_t, ns["time"])
@@ -96,7 +99,7 @@ def _cascade_solve(
     r = a_radius if panel % 2 == 0 else b_radius
     tht_offset = panel * (np.pi / 2.0)
 
-    f_centre = make_f_no_spin(b, s, g, p_t, v_t)
+    f_centre = make_f_no_spin(b, s, g, p_t, v_t, a_t)
 
     def f_spin(x: np.ndarray) -> np.ndarray:
         t = x[2]
@@ -154,10 +157,13 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
             self.log.warning("estimate has no aim_z; cannot solve")
             return None
 
-        # Advance state to firing time (processing delay since the estimate) via
-        # constant-velocity extrapolation -- no estimator instance needed.
+        # Advance state to firing time (processing delay since the estimate);
+        # constant-velocity, or constant-acceleration when the estimator tracks
+        # accel (estimate.accel != None) -- no estimator instance needed.
         time_since_estimate = time.perf_counter() - estimate.timestamp
-        pred = FullStateKF.predict_ahead(estimate.value, time_since_estimate + BALLISTIC.lookahead_time)
+        pred = FullStateKF.predict_ahead(
+            estimate.value, time_since_estimate + BALLISTIC.lookahead_time, estimate.accel
+        )
 
         p_t = np.array(
             [pred[0] / METERS_TO_CM, pred[1] / METERS_TO_CM, estimate.aim_z / METERS_TO_CM]
@@ -165,6 +171,12 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
         v_t = np.array([pred[2] / METERS_TO_CM, pred[3] / METERS_TO_CM, 0.0])
         tht_t = float(pred[4])
         omg_t = float(pred[5])
+        # Accel is constant under CA, so it carries to firing time unchanged.
+        a_t = (
+            np.array([estimate.accel[0], estimate.accel[1], 0.0]) / METERS_TO_CM
+            if estimate.accel is not None
+            else None
+        )
 
         result = _cascade_solve(
             b=self._barrel,
@@ -176,6 +188,7 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
             omg_t=omg_t,
             a_radius=estimate.a_radius / METERS_TO_CM,
             b_radius=estimate.b_radius / METERS_TO_CM,
+            a_t=a_t,
         )
 
         if not result["success"]:

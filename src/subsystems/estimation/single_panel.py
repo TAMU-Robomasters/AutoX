@@ -22,7 +22,8 @@ from typing import Optional
 import numpy as np
 
 from src.core.module import Module, mock, real
-from src.subsystems.estimation.filters import PositionKF
+from src.subsystems.estimation.filters import CenterPositionEstimator
+from src.subsystems.estimation.imm import make_position_estimator
 from src.toolbox.globals import config
 from src.types.autoaim import (
     ArmorPanel,
@@ -32,17 +33,16 @@ from src.types.autoaim import (
 )
 
 
-def _default_panel_kf() -> PositionKF:
-    """Constant-velocity KF over the panel itself (r=0: no back-projection)."""
-    return PositionKF(
+def _default_panel_kf() -> CenterPositionEstimator:
+    """Position estimator over the panel itself (r=0: no back-projection).
+
+    The backend (constant_velocity | constant_acceleration | imm) follows
+    ``config.estimation.motion_model`` via ``make_position_estimator``.
+    """
+    return make_position_estimator(
         r_pos=3.0,        # cm, single-frame panel position noise
-        q_vx=50.0,
-        q_vy=50.0,
         r=0.0,            # back_project(x, y, yaw, 0) == (x, y)
         init_std=(10.0, 10.0, 50.0, 50.0),
-        model=str(config.estimation.motion_model),
-        q_jerk=float(config.estimation.pos_q_jerk),
-        init_std_accel=float(config.estimation.pos_init_std_accel),
     )
 
 
@@ -69,6 +69,15 @@ class SinglePanelEstimationModule(Module[FullStateAutoAimContext]):
         self._initialized = False
         self._last_id = None
         self._last_xy = None
+
+    def gate_radius(self, dt: float) -> float:
+        """1-sigma panel-position gate radius ``dt`` ahead (cm); see ``PositionKF.gate_radius``.
+
+        ``inf`` before the first observation (no track yet -> never confident).
+        """
+        if not self._initialized:
+            return float("inf")
+        return self._kf.gate_radius(dt)
 
     def _needs_reinit(self, panel: ArmorPanel, xy: np.ndarray) -> bool:
         if not self._initialized:
@@ -127,6 +136,7 @@ class SinglePanelEstimationModule(Module[FullStateAutoAimContext]):
             z=self._last_z,
             panel_id=self._last_id,
             timestamp=self.last_update_time,
+            accel=self._kf.accel(),
         )
 
     @mock

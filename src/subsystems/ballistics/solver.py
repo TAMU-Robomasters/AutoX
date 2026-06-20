@@ -91,26 +91,34 @@ def init_guess(p_t: np.ndarray, speed: float, gravity: float) -> np.ndarray:
 
 
 def make_f_no_spin(
-    b: np.ndarray, s: float, g: float, p_t: np.ndarray, v_t: np.ndarray
+    b: np.ndarray,
+    s: float,
+    g: float,
+    p_t: np.ndarray,
+    v_t: np.ndarray,
+    a_t: np.ndarray | None = None,
 ) -> Callable[[np.ndarray], np.ndarray]:
-    """Residual function for hitting a constant-velocity point target.
+    """Residual function for hitting a (optionally accelerating) point target.
 
-    These are the projectile equations with no target acceleration: the
-    projectile leaves the barrel tip ``b`` (rotated by yaw/pitch) at speed
-    ``s``, drops under gravity ``g`` (negative), and must meet
-    ``p_t + v_t * t`` at flight time ``t``. Unknowns ``x = [yaw, pitch, t]``
-    with yaw in the MCU convention (yaw=0 fires along +y).
+    The projectile leaves the barrel tip ``b`` (rotated by yaw/pitch) at speed
+    ``s``, drops under gravity ``g`` (negative), and must meet the target at
+    flight time ``t``. With ``a_t=None`` the target moves at constant velocity
+    (``p_t + v_t * t``); with a ``[ax, ay, az]`` it moves at constant
+    acceleration (``p_t + v_t * t + 0.5 * a_t * t^2``) -- the constant-velocity
+    case is recovered exactly when ``a_t`` is zero. Unknowns ``x = [yaw, pitch,
+    t]`` with yaw in the MCU convention (yaw=0 fires along +y).
     """
+    a = np.zeros(3) if a_t is None else np.asarray(a_t, dtype=float)
 
     def f(x: np.ndarray) -> np.ndarray:
         yaw, pitch, t = x
         return np.array([
             b[0] * np.cos(yaw) - np.sin(yaw) * (b[1] * np.cos(pitch) - b[2] * np.sin(pitch))
-                - s * t * np.sin(yaw) * np.cos(pitch) - p_t[0] - v_t[0] * t,
+                - s * t * np.sin(yaw) * np.cos(pitch) - p_t[0] - v_t[0] * t - 0.5 * a[0] * t**2,
             b[0] * np.sin(yaw) + np.cos(yaw) * (b[1] * np.cos(pitch) - b[2] * np.sin(pitch))
-                + s * t * np.cos(yaw) * np.cos(pitch) - p_t[1] - v_t[1] * t,
+                + s * t * np.cos(yaw) * np.cos(pitch) - p_t[1] - v_t[1] * t - 0.5 * a[1] * t**2,
             b[1] * np.sin(pitch) + b[2] * np.cos(pitch) + s * t * np.sin(pitch)
-                + 0.5 * g * t**2 - p_t[2] - v_t[2] * t,
+                + 0.5 * g * t**2 - p_t[2] - v_t[2] * t - 0.5 * a[2] * t**2,
         ])
 
     return f
@@ -123,14 +131,16 @@ def solve_no_spin(
     p_t: np.ndarray,
     v_t: np.ndarray,
     tol: float = 1e-4,
+    a_t: np.ndarray | None = None,
 ) -> Dict:
     """LM-solve :func:`make_f_no_spin` for [yaw, pitch, time].
 
-    Returns a dict with ``success`` (residual < tol), ``yaw`` (MCU convention),
-    ``pitch``, ``time``, and ``residual``. On failure yaw/pitch/time hold the
-    solver's last iterate (callers must check ``success``).
+    ``a_t`` (optional ``[ax, ay, az]`` target acceleration) is folded into the
+    in-flight projectile arc. Returns a dict with ``success`` (residual < tol),
+    ``yaw`` (MCU convention), ``pitch``, ``time``, and ``residual``. On failure
+    yaw/pitch/time hold the solver's last iterate (callers must check ``success``).
     """
-    f = make_f_no_spin(b, s, g, p_t, v_t)
+    f = make_f_no_spin(b, s, g, p_t, v_t, a_t)
     result = root(f, init_guess(p_t, s, g), method="lm", tol=tol)
     residual = float(np.linalg.norm(f(result.x)))
     return {
