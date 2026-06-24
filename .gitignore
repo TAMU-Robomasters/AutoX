@@ -635,6 +635,9 @@ docs/build/
 .claude
 CLAUDE.md
 
-#scalene 
+#scalene
 profile.html
 profile.json
+
+# docker test rig local env (copy docker/.env.example -> docker/.env)
+docker/.env

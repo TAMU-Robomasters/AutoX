@@ -99,6 +99,13 @@ plan for whatever you're tackling.
    capture-only diagnostics), config reference, and the dev-env gotchas (mrcal vs
    Python 3.10/3.12, lazy mrcal, headless display, the pre-existing
    `force_reestimation` test failures). Read with `07`.
+9. `09-sentry-nav2-behavior.md` — sentry nav2 behavior (the plan-02 `py_trees`
+   brain + AutoNav engine) on an **AutoX-owned UART**: invert serial ownership so
+   the latency-critical auto-aim `'t'`/`'d'` traffic stays in-process and nav2
+   reaches the MCU through a ROS bridge AutoX hosts (`/odom`+TF / `/cmd_vel`).
+   Adds `McuDriver` priority lanes + per-consumer response queues, multi-link
+   cross-engine queues, mocks, and a Docker ROS 2 Humble + Nav2 + Gazebo rig
+   (`docker/`). Supersedes the UART direction of `02`.
 
 ## Recurring gotchas
 

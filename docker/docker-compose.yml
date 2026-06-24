@@ -1,0 +1,61 @@
+# Sentry nav sim rig — ROS 2 Humble + Nav2 + Gazebo (nav2 service) and AutoX
+# (autox service), sharing one DDS graph over the host network.
+#
+# Sources are volume-mounted and built at container start (colcon / uv sync), so
+# edits on the host are live and nothing heavy is baked into the images.
+#
+# Disk: a full build pulls/creates several GB. Check `df -h /` first (see README).
+#
+# Usage (from this docker/ directory):
+#   docker compose build
+#   # rig 1 — Gazebo full sim (brain/nav plumbing):
+#   docker compose run --rm nav2  ros2 launch sam_bot_bringup bringup.launch.py
+#   docker compose run --rm autox uv run main.py @MOCK_CAM @SENTRY ROS=NAV2 MCU=MOCK
+#   # shells:
+#   docker compose run --rm nav2  bash
+#   docker compose run --rm autox bash
+name: sentry-nav-rig
+
+x-ros-env: &ros-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+  RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+
+services:
+  # ROS 2 Humble + Nav2 + Gazebo Classic. The nav2-sim-testing workspace is
+  # mounted at /ws and colcon-built by the entrypoint on first run.
+  nav2:
+    build:
+      context: ./nav2
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-humble}
+    image: sentry-nav-rig/nav2:humble
+    network_mode: host          # shared DDS graph with the autox service + host
+    ipc: host                   # Fast-DDS shared-memory transport
+    environment:
+      <<: *ros-env
+      DISPLAY: ${DISPLAY:-}
+      # Software GL by default (portable, headless-friendly). For GPU rendering
+      # see README "GUI / GPU" and set LIBGL_ALWAYS_SOFTWARE=0 + the nvidia runtime.
+      LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
+    volumes:
+      - ../../nav2-sim-testing:/ws
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    stdin_open: true
+    tty: true
+
+  # ROS 2 Humble base (Ubuntu 22.04 -> Python 3.10) + uv + AutoX. The AutoX repo
+  # is mounted at /autox and `uv sync`'d into an image-local venv on first run.
+  autox:
+    build:
+      context: ./autox
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-humble}
+    image: sentry-nav-rig/autox:humble
+    network_mode: host
+    ipc: host
+    environment:
+      <<: *ros-env
+    volumes:
+      - ..:/autox             # the AutoX repo (this repo). venv lives in the image.
+    stdin_open: true
+    tty: true
