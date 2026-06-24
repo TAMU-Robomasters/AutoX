@@ -350,8 +350,12 @@ def resolve_camera_config(name: str) -> dict:
         idx = int(name.split("_", 1)[1])
         # circlet.cameras entries are plain dicts (YAML list items) -> _cfg_get.
         cam = circlet.cameras[idx]
+        # A `device:` path (e.g. a stable /dev/circlet/camN udev symlink) wins
+        # over the unstable integer `index:`; both flow through as make_source's
+        # `index` arg (PyAvCameraSource accepts an int or a device-path string).
+        device = _cfg_get(cam, "device", None)
         return {
-            "index": int(_cfg_get(cam, "index", idx)),
+            "index": device if device else int(_cfg_get(cam, "index", idx)),
             "backend": _cfg_get(cam, "backend", _cfg_get(circlet, "backend", "pyav")),
             "width": int(_cfg_get(cam, "width", circlet.width)),
             "height": int(_cfg_get(cam, "height", circlet.height)),
@@ -368,8 +372,13 @@ def resolve_camera_config(name: str) -> dict:
     mock_fps = getattr(hw, "mock_fps", None)
     if backend == "mock" and mock_fps:
         fps = int(mock_fps)
+    # camera_index may be an int (/dev/videoN) or a stable device-path string
+    # (e.g. a /dev/circlet/maincam udev symlink) -- both flow through to PyAv as
+    # the `index` arg. Paths survive /dev/videoN renumbering when many identical
+    # cameras are attached; an int does not.
+    cam_index = getattr(hw, "camera_index", 0)
     return {
-        "index": int(getattr(hw, "camera_index", 0)),
+        "index": cam_index if isinstance(cam_index, str) else int(cam_index),
         "backend": backend,
         "width": int(hw.camera_width),
         "height": int(hw.camera_height),

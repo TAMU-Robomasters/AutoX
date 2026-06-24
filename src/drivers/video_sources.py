@@ -283,7 +283,7 @@ class PyAvCameraSource(_ThreadedFrameSource):
 
     def __init__(
         self,
-        index: int,
+        index,
         width: int,
         height: int,
         fps: int = 90,
@@ -291,7 +291,9 @@ class PyAvCameraSource(_ThreadedFrameSource):
         input_format: str = "mjpeg",
     ) -> None:
         super().__init__(width, height)
-        self.index = int(index)
+        # ``index`` is either an int (``/dev/video{index}``) or an explicit device
+        # path string (e.g. a stable ``/dev/circlet/cam0`` udev symlink).
+        self.index = index
         self.fps = int(fps)
         self.exposure = exposure
         self.input_format = input_format
@@ -299,8 +301,10 @@ class PyAvCameraSource(_ThreadedFrameSource):
 
     @property
     def device(self) -> str:
-        """The ``/dev/videoN`` path for this camera index."""
-        return f"/dev/video{self.index}"
+        """The device path: an explicit path string, or ``/dev/videoN`` by index."""
+        if isinstance(self.index, str) and self.index.startswith("/"):
+            return self.index
+        return f"/dev/video{int(self.index)}"
 
     def _apply_controls(self) -> None:
         """Set manual exposure via v4l2-python3 ioctls; fall back to v4l2-ctl."""
@@ -376,7 +380,7 @@ class PyAvCameraSource(_ThreadedFrameSource):
 def make_source(
     backend: str,
     *,
-    index: int,
+    index,  # int (/dev/videoN) or str (explicit device path)
     width: int,
     height: int,
     fps: int,

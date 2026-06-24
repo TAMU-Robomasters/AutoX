@@ -93,9 +93,12 @@ plan for whatever you're tackling.
    the chassis→turret geometry on hardware.
 8. `08-circlet-extending.md` — agent orientation for **building on** circlet: data
    flow + frames, file map, the four extension points (pub/sub, capture backends,
-   the targeting merge, per-camera config), config reference, and the dev-env
-   gotchas (mrcal vs Python 3.10/3.12, lazy mrcal, headless display, the
-   pre-existing `force_reestimation` test failures). Read with `07`.
+   the targeting merge, per-camera config), the **per-camera worker-process model**,
+   the **real-camera bring-up runbook** (standalone launchers, `@CIRCLET_ONLY`,
+   stable udev device paths, the USB-bandwidth ceiling + working wiring recipes,
+   capture-only diagnostics), config reference, and the dev-env gotchas (mrcal vs
+   Python 3.10/3.12, lazy mrcal, headless display, the pre-existing
+   `force_reestimation` test failures). Read with `07`.
 
 ## Recurring gotchas
 

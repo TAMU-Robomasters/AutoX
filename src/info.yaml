@@ -167,18 +167,30 @@
                                      # hold fire). Validate chassis->turret geometry on
                                      # hardware before enabling.
                 # Per-camera defaults (overridable per entry in `cameras`).
-                width: 1280
-                height: 720
-                fps: 15              # nominal capture fps (varies at runtime)
+                width: 640
+                height: 480
+                fps: 15              # nominal capture fps (cap; with 4 cams the
+                                     # ring is detection-CPU-bound (~100 fps
+                                     # aggregate), so 60 mainly cuts frame latency)
                 backend: mock        # pyav | mock | ffmpeg
                 # The four ring cameras. yaw_deg = mounting yaw about chassis z;
                 # translation = camera offset in cm. Extrinsics default to identity
                 # (single-camera bring-up) until per-camera calibration exists.
+                # device = stable per-port symlink from utils/circlet_udev.py
+                # (keyed on USB port path, survives /dev/videoN renumbering).
+                # Current wiring (2 cams per USB-C hub, each its own 480 domain):
+                #   cam0 1-1.2  cam1 1-1.3  (USB-C hub A, root 1)
+                #   cam2 1-2.1  cam3 1-2.4  (USB-C hub B, root 2)
+                # Re-run utils/circlet_udev.py --install after any re-wiring.
+                # (Fallback: `index: /dev/videoN` -- EVEN node is the MJPG
+                # capture device -- but those numbers are NOT stable.)
+                # yaw_deg below is the MOUNTING yaw; confirm it matches how each
+                # camera is physically oriented on the ring.
                 cameras:
-                    - {index: 1, yaw_deg: 0,   translation: [0, 0, 0]}
-                    - {index: 2, yaw_deg: 90,  translation: [0, 0, 0]}
-                    - {index: 3, yaw_deg: 180, translation: [0, 0, 0]}
-                    - {index: 4, yaw_deg: 270, translation: [0, 0, 0]}
+                    - {device: /dev/circlet/cam0, yaw_deg: 0,   translation: [0, 0, 0]}
+                    - {device: /dev/circlet/cam1, yaw_deg: 90,  translation: [0, 0, 0]}
+                    - {device: /dev/circlet/cam2, yaw_deg: 180, translation: [0, 0, 0]}
+                    - {device: /dev/circlet/cam3, yaw_deg: 270, translation: [0, 0, 0]}
 
             ballistic:
                 gravity: 981              # cm/s^2
@@ -425,7 +437,32 @@
             circlet:
                 enable: true
                 backend: mock
-        
+
+        # Standalone circlet bring-up: run ONLY the ring engine (4 real pyav
+        # cameras), no auto-aim / MCU. Launch via `uv run run_circlet.py
+        # @CIRCLET_ONLY`. Headless -- detections publish to a queue with no
+        # subscriber (last-value, non-blocking) so it's a self-contained test.
+        CIRCLET_ONLY:
+            circlet:
+                enable: true
+                backend: pyav
+            hardware:
+                # The classical detector's PnP reads ONE shared intrinsics via
+                # camera_info -> config.hardware.camera_intrinsics_path, which is
+                # otherwise only set by the robot profiles (@SENTRY etc.). Without
+                # it PnP raises "'Config' object has no attribute
+                # camera_intrinsics_path" and every panel is dropped. This is a
+                # 1280x720 PLACEHOLDER (the gimbal cam's calibration) so detection
+                # runs standalone; circlet panel geometry isn't trustworthy until
+                # each ring camera has its own intrinsics wired through.
+                camera_intrinsics_path: "mrcal_1280x720"
+                # Point the gimbal cam (frames driver) at its stable udev symlink
+                # so the 5-cam capture test (`run_circlet_capture.py @SENTRY
+                # @CIRCLET_ONLY`) doesn't collide with a ring cam when /dev/videoN
+                # renumbers. Overrides the robot profile's int camera_index. Needs
+                # the maincam udev rule (see utils/circlet_udev.py wiring notes).
+                camera_index: /dev/circlet/maincam
+
 # CAMERA=SENTRY_CAM removed -- the sentry camera is now bundled into the @SENTRY
 # robot profile above (likewise @STANDARD / @HERO). Use @SENTRY instead.
 
