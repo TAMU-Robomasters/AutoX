@@ -32,7 +32,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Type
+from typing import List, Optional, Tuple, Type
 
 import numpy as np
 
@@ -412,8 +412,13 @@ class CameraDriver(Driver):
     # -- orchestrator factory contract (provision in parent, client in child) --
 
     @staticmethod
-    def provision(name: str) -> dict:
-        """Parent-side: allocate the transport (service name) + resolve cam params."""
+    def provision(name: str, consumers: Optional[List[str]] = None) -> dict:
+        """Parent-side: allocate the transport (service name) + resolve cam params.
+
+        ``consumers`` (the engine class names that will read this camera) is part
+        of the shared factory contract but unused here — iceoryx2 already fans out
+        to every subscriber via the ring buffer.
+        """
         return {"service": f"autox/{name}", "name": name, **resolve_camera_config(name)}
 
     @classmethod
@@ -422,8 +427,12 @@ class CameraDriver(Driver):
         return cls(service_name=conn["service"], params=conn)
 
     @staticmethod
-    def client(conn: dict) -> "FrameReader":
-        """Child-side: build + start a consumer handle (a FrameReader)."""
+    def client(conn: dict, consumer_key: Optional[str] = None) -> "FrameReader":
+        """Child-side: build + start a consumer handle (a FrameReader).
+
+        ``consumer_key`` is part of the shared factory contract but unused here —
+        each reader is already an independent iceoryx2 subscriber.
+        """
         reader = FrameReader(
             conn["service"],
             node_name=f"autox_reader_{conn.get('name', 'frames')}",

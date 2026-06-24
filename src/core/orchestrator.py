@@ -48,16 +48,22 @@ def launch_system(engine_classes: list) -> list:
     # this (parent) process owns the console/file handlers. Idempotent.
     log_queue, _ = start_log_listener()
 
-    # One shared driver per unique name across all engines.
+    # One shared driver per unique name across all engines, plus the list of
+    # engine classes that consume each (so drivers can pre-allocate one resource
+    # per consumer — e.g. McuDriver's per-consumer response queues).
     needed: dict = {}
+    consumers_by_driver: dict = {}
     for engine_cls in engine_classes:
         for name, driver_type in getattr(engine_cls, "drivers", {}).items():
             needed[name] = driver_type
+            consumers_by_driver.setdefault(name, []).append(engine_cls.__name__)
 
     registry: dict = {}
     processes: list = []
     for name, driver_type in needed.items():
-        conn = driver_type.provision(name)  # parent-side transport allocation
+        # parent-side transport allocation; consumers let the driver size
+        # per-consumer resources (drivers that don't need it ignore the arg).
+        conn = driver_type.provision(name, consumers_by_driver[name])
         registry[name] = conn
         driver = driver_type.from_conn(conn)
         driver.start()

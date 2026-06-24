@@ -17,15 +17,21 @@ class McuRequest:
 
     Attributes:
         op: operation name (``"get_transformation"`` | ``"send_solution"`` |
-            ``"get_match_state"``).
+            ``"get_odometry"`` | ``"send_velocity"`` | ``"get_match_state"``).
         args: positional arguments for the op.
         req_id: monotonic id the client uses to match the response. ``None`` for
-            fire-and-forget ops (e.g. ``send_solution``) that expect no reply.
+            fire-and-forget ops (e.g. ``send_solution``/``send_velocity``) that
+            expect no reply.
+        consumer_key: which consumer's response queue the driver must reply on.
+            One queue per consumer keeps concurrent consumers (auto-aim +
+            nav-bridge) from dequeuing each other's replies. ``"default"`` for the
+            single-consumer case. Carried on fire-and-forget ops too (harmless).
     """
 
     op: str
     args: Tuple[Any, ...] = ()
     req_id: Optional[int] = None
+    consumer_key: str = "default"
 
 
 @dataclass

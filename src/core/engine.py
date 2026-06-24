@@ -133,7 +133,11 @@ class Engine(_Process, ABC, Generic[T]):
                     f"constructing and .start()ing them directly."
                 )
             conn = self._driver_registry[name]
-            self._driver_handles[name] = driver_type.client(conn)
+            # Pass this engine's identity so drivers that fan out to multiple
+            # concurrent consumers (e.g. McuDriver's per-consumer response queues)
+            # can route replies back to the right client. Drivers that don't need
+            # it ignore the argument.
+            self._driver_handles[name] = driver_type.client(conn, type(self).__name__)
 
     def driver(self, name: str):
         """Return the client handle for a declared driver (built in run())."""
