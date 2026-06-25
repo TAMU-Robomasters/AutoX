@@ -21,4 +21,10 @@ echo "[autox-entrypoint] uv sync (deps only, no project build)…"
 uv sync --no-install-project --inexact --extra linux \
   || echo "[autox-entrypoint] WARN: uv sync had errors; check iceoryx2/cargo build"
 
+# Put the synced venv first on PATH so the app runs as `python main.py`.
+# Deliberately NOT `uv run main.py`: `uv run` would try to install the AutoX
+# project itself, triggering the scikit-build-core CMake/CUDA pf_cuda_cv build
+# that this CPU container can't do. Deps are already in the venv from the sync.
+export PATH="${UV_PROJECT_ENVIRONMENT}/bin:${PATH}"
+
 exec "$@"

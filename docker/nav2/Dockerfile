@@ -29,6 +29,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
     && rm -rf /var/lib/apt/lists/*
 
+# PCL for the multi-laserscan-toolbox merger: it find_package()s pcl_conversions
+# + PCL (used by its tools.cpp). Kept in a separate layer so the heavy
+# navigation2/gazebo layer above stays cached across edits here.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-${ROS_DISTRO}-pcl-conversions \
+      libpcl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

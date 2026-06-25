@@ -10,7 +10,7 @@
 #   docker compose build
 #   # rig 1 — Gazebo full sim (brain/nav plumbing):
 #   docker compose run --rm nav2  ros2 launch sam_bot_bringup bringup.launch.py
-#   docker compose run --rm autox uv run main.py @MOCK_CAM @SENTRY ROS=NAV2 MCU=MOCK
+#   docker compose run --rm autox python main.py @MOCK_CAM @SENTRY ROS=NAV2 MCU=MOCK
 #   # shells:
 #   docker compose run --rm nav2  bash
 #   docker compose run --rm autox bash

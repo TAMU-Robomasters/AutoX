@@ -32,7 +32,7 @@ sim: ## Rig 1: Gazebo full sim (odom+scan+cmd_vel from Gazebo)
 
 .PHONY: brain
 brain: ## Run AutoX AutoNav/brain against the running stack (ROS=NAV2 MCU=MOCK)
-	$(COMPOSE) run --rm autox uv run main.py @MOCK_CAM @SENTRY ROS=NAV2 MCU=MOCK
+	$(COMPOSE) run --rm autox python main.py @MOCK_CAM @SENTRY ROS=NAV2 MCU=MOCK
 
 .PHONY: teleop
 teleop: ## Drive /cmd_vel by keyboard (rig 2 manual check)

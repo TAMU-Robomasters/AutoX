@@ -16,11 +16,13 @@ if [ -d /ws/src ]; then
       || echo "[nav2-entrypoint] WARN: submodule init failed (offline/private?); building what's available"
   fi
 
-  if [ ! -f /ws/install/setup.bash ]; then
-    echo "[nav2-entrypoint] colcon build (ignoring hardware-only ldlidar packages)…"
-    ( cd /ws && colcon build --symlink-install --packages-ignore-regex '.*ldlidar.*' ) \
-      || echo "[nav2-entrypoint] WARN: colcon build reported errors; continuing with what built"
-  fi
+  # Always build (colcon is incremental: a no-op when up to date, and it retries
+  # packages that previously failed). Guarding on install/setup.bash is wrong --
+  # a partial first build leaves setup.bash present and would skip the retry.
+  echo "[nav2-entrypoint] colcon build (ignoring hardware-only ldlidar packages)…"
+  ( cd /ws && colcon build --symlink-install --continue-on-error \
+      --packages-ignore-regex '.*ldlidar.*' ) \
+    || echo "[nav2-entrypoint] WARN: colcon build reported errors; continuing with what built"
   [ -f /ws/install/setup.bash ] && source /ws/install/setup.bash
 fi
 
