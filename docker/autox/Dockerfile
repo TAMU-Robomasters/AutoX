@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       cargo rustc \
     && rm -rf /var/lib/apt/lists/*
 
+# nav2_simple_commander (BasicNavigator) + nav2_msgs: the AutoNav engine drives
+# nav2 through these. Separate layer so the build-tools layer above stays cached.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-${ROS_DISTRO}-nav2-simple-commander \
+      ros-${ROS_DISTRO}-nav2-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
 # uv (Astral) on PATH.
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"

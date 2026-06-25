@@ -243,6 +243,18 @@
                 odom_frame: "odom"
                 base_frame: "base_link"
                 embedded_odom_frame: "embedded_odom"
+                # --- AutoNav behaviour brain (Phase 4) ---
+                # Doctrine: progress to the next waypoint; on enemy contact slow
+                # side-step (evade) until clear; then resume. Turret auto-aims
+                # fail-open throughout. Waypoints/initial_pose are in the map frame
+                # (match amcl's set_initial_pose); yaw is ignored (MCU owns it).
+                tick_rate: 10.0           # Hz, brain tick + nav goal management
+                map_frame: "map"
+                initial_pose: [0.0, 0.0]  # amcl init (x, y)
+                waypoints:                # patrol points (x, y), looped
+                    - [0.786, 1.47]
+                    - [3.73, 1.44]
+                evade_offset: 0.4         # m, lateral side-step amplitude on contact
 
             # Full-state estimator backend. `method` only applies to the ARCHIVED
             # engine (the live engine is Kalman-filter-only); the rest configures
