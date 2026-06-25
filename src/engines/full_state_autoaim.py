@@ -77,6 +77,7 @@ from src.subsystems.ballistics.single_panel import SinglePanelBallisticModule
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import CVState
+from src.subsystems.engage_gate import engagement_allowed
 from src.subsystems.estimation.full_state.kf import (
     KalmanFilterEstimationModule,
     _default_full_state_kf,
@@ -100,6 +101,7 @@ from src.toolbox.globals import absolute_path_to, config
 from src.toolbox.storage import JsonStore
 from src.toolbox.timeout import Timeout
 from src.types.autoaim import EnemyRobot, FullStateAutoAimContext
+from src.types.sentry import AimTarget, EngageDirective
 
 METERS_TO_CM = 100
 _ADJACENT_YAW_TOL = np.radians(20.0)  # two-panel gate: |yaw separation - 90deg|
@@ -121,6 +123,11 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
     # link is only fed when a CircletEngine is launched alongside (the @CIRCLET
     # profile); without it this is a no-op and the gimbal-camera path is unchanged.
     subscribes_queue = "circlet_detections"
+    # Sentry-nav links (plan 09), only fed when AutoNav runs: publish whether we
+    # currently see an enemy (drives the brain's evade); subscribe the brain's
+    # engage directive (fail-open hold/fire). No AutoNav -> both are no-ops.
+    publishes_queue = "aim_target"
+    subscribes_queues = ["engage_directive"]
 
     def __init__(
         self, driver_registry: Optional[dict] = None, queue: Optional[Queue] = None
@@ -184,6 +191,13 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         # MCU access goes through the shared McuDriver (serial/ros/mock chosen
         # by the MCU= profile); the engine never opens the UART itself.
         self.mcu = self.driver("mcu")
+        # Sentry engage interlock (plan 09): cache the freshest engage directive
+        # from AutoNav; fire is gated fail-open in update(). Both knobs live in the
+        # autonav config block (match interlock is opt-in pending the firmware wire
+        # message — get_match_state on the serial backend isn't implemented yet).
+        self._last_engage: Optional[EngageDirective] = None
+        self._engage_staleness = float(config.autonav.engage_staleness_s)
+        self._match_interlock = bool(config.autonav.match_interlock)
         # Fallback pitch/yaw sent when no target is available.
         self._last_pitch: float = float(np.deg2rad(-10))
         self._last_yaw: float = 0.0
@@ -581,6 +595,10 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             # (aim, hold fire). Opt-in + experimental -- see _slew_to_circlet.
             self._slew_to_circlet()
 
+        # Tell the AutoNav brain whether we currently see an enemy (no-op without
+        # an AutoNav subscriber). Drives the brain's progress<->evade decision.
+        self.publish(AimTarget(visible=self.ctx.target_robot is not None))
+
         self._pace(start)
 
     def _process_frame(self) -> None:
@@ -667,6 +685,23 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
 
     def update(self) -> None:
         """Send the latest solution to the MCU and service the display."""
+        # Engagement interlock (fail-OPEN): the only place fire is gated on the
+        # wire. A FRESH AutoNav engage=False (or, when enabled, an inactive match)
+        # forces NO_TARGET so firmware aims but holds fire; a missing/stale
+        # directive engages. No AutoNav running -> directive stays None -> engage.
+        directive = self.latest_subscribed("engage_directive")
+        if directive is not None:
+            self._last_engage = directive
+        match_state = self.mcu.get_match_state() if self._match_interlock else None
+        if not engagement_allowed(
+            self._last_engage,
+            time.time(),
+            self._engage_staleness,
+            match_state,
+            self._match_interlock,
+        ):
+            self.cv_state = CVState.NO_TARGET.value
+
         self.log.debug(
             "to embedded: pitch=%.2fdeg yaw=%.2fdeg align=%dms cv_state=%d",
             np.rad2deg(self._last_pitch),

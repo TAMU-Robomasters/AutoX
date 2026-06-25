@@ -255,6 +255,13 @@
                     - [0.786, 1.47]
                     - [3.73, 1.44]
                 evade_offset: 0.4         # m, lateral side-step amplitude on contact
+                # Auto-aim engage interlock (Phase 5). engage_staleness_s: a brain
+                # engage directive older than this is ignored (auto-aim fails OPEN
+                # if AutoNav dies/stalls). match_interlock: hold fire pre/post-match
+                # -- opt-in, off until the MCU has a match-state wire message
+                # (get_match_state on the serial backend is not implemented yet).
+                engage_staleness_s: 0.5
+                match_interlock: false
 
             # Full-state estimator backend. `method` only applies to the ARCHIVED
             # engine (the live engine is Kalman-filter-only); the rest configures
