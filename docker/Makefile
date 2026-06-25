@@ -38,6 +38,18 @@ brain: ## Run AutoX AutoNav/brain against the running stack (ROS=NAV2 MCU=MOCK)
 rig2: ## Rig 2: MCU bridge <-> mock kinematic odom (/odom advances under /cmd_vel)
 	$(COMPOSE) run --rm autox bash /autox/docker/rig2_mcu_bridge.sh
 
+.PHONY: bench-mcu
+bench-mcu: ## Latency: AutoX in-process McuDriver round-trip ('t'/'q', isolated + loaded)
+	$(COMPOSE) run --rm autox python docker/bench_mcu_latency.py
+
+.PHONY: bench-ros
+bench-ros: ## Latency: ROS/DDS service round-trip (the cost kept off the aim path)
+	$(COMPOSE) run --rm autox python docker/bench_ros_latency.py
+
+.PHONY: evade
+evade: ## Evade test: AutoNav + fake auto-aim vs a running sim (`make sim` first)
+	$(COMPOSE) run --rm autox python run_evade_test.py autonav:nav2_localizer:none
+
 .PHONY: teleop
 teleop: ## Drive /cmd_vel by keyboard (rig 2 manual check)
 	$(COMPOSE) run --rm nav2 ros2 run teleop_twist_keyboard teleop_twist_keyboard
