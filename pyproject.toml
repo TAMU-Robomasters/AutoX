@@ -19,6 +19,7 @@ dependencies = [
     "matplotlib>=3.7",
     "numpy==1.24.*",
     "opencv-python==4.7.*",
+    "py-trees>=2.2",
     "pyrealsense2>=2.58.1.10581",
     "pyserial==3.5.*",
     "quik-config>=1.9.1",
