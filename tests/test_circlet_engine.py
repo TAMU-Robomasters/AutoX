@@ -96,6 +96,35 @@ def test_wire_queues_no_links_is_empty():
     assert _wire_engine_queues([Plain]) == {}
 
 
+def test_wire_queues_multilink_collects_all_names():
+    """A multi-link subscriber + per-name publishers get one queue per link."""
+
+    class AutoAim:
+        subscribes_queues = ["circlet_detections", "engage_directive"]
+
+    class Circlet:
+        publishes_queue = "circlet_detections"
+
+    class AutoNav:
+        publishes_queues = ["engage_directive"]
+
+    registry = _wire_engine_queues([AutoAim, Circlet, AutoNav])
+    assert set(registry) == {"circlet_detections", "engage_directive"}
+
+
+def test_wire_queues_duplicate_publisher_across_single_and_multi():
+    """One publisher via single-link + another via multi-link still hard-errors."""
+
+    class P1:
+        publishes_queue = "engage_directive"
+
+    class P2:
+        publishes_queues = ["engage_directive"]
+
+    with pytest.raises(RuntimeError, match="published by both"):
+        _wire_engine_queues([P1, P2])
+
+
 # --------------------------------------------------------------------------
 # Engine pub/sub helpers (last-value semantics)
 # --------------------------------------------------------------------------
@@ -132,6 +161,34 @@ def test_publish_and_subscribe_are_noops_without_queues():
     engine = _make_engine()
     engine.publish("ignored")  # no _publish_q -> no error
     assert engine.latest_subscribed() is None
+
+
+def test_named_links_route_independently():
+    """publish/latest_subscribed(name=...) address distinct named links."""
+    engine = _make_engine()
+    qa, qb = Queue(), Queue()
+    engine._publish_qs = {"a": qa, "b": qb}
+    engine._subscribe_qs = {"a": qa, "b": qb}
+
+    engine.publish("to-a", "a")
+    engine.publish("to-b", "b")
+    time.sleep(0.05)  # let the queue feeder threads flush
+    # Each name reads only its own link's newest message — no cross-talk.
+    assert engine.latest_subscribed("a") == "to-a"
+    assert engine.latest_subscribed("b") == "to-b"
+    assert engine.latest_subscribed("a") is None  # drained
+    assert engine.latest_subscribed("missing") is None  # unknown name -> no-op
+
+
+def test_single_multilink_infers_without_name():
+    """With exactly one multi-link and no name, publish/subscribe use it."""
+    engine = _make_engine()
+    q = Queue()
+    engine._publish_qs = {"only": q}
+    engine._subscribe_qs = {"only": q}
+    engine.publish("x")  # name omitted -> the sole multi link
+    time.sleep(0.05)
+    assert engine.latest_subscribed() == "x"
 
 
 # --------------------------------------------------------------------------

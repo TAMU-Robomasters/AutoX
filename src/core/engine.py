@@ -8,12 +8,11 @@ import inspect
 import queue as _queue
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
+from multiprocessing import Process as _Process
 from typing import Any, Generic, List, Optional, Set, Type, TypeVar
 
 from src.core.module import Context, Module
 from src.toolbox.logger import configure_child_logging, get_logger
-
-from multiprocessing import Process as _Process
 
 T = TypeVar("T", bound="Context")
 
@@ -42,8 +41,18 @@ class Engine(_Process, ABC, Generic[T]):
     #: queue per unique name and injects it before ``start()`` (so the child
     #: inherits it at fork). Two engines publishing the same name is a hard
     #: startup error. Use :meth:`publish` / :meth:`latest_subscribed`.
+    #:
+    #: ``publishes_queue`` / ``subscribes_queue`` are the **single-link** form (one
+    #: name each); :meth:`publish` / :meth:`latest_subscribed` with no ``name`` use
+    #: them. ``publishes_queues`` / ``subscribes_queues`` are the **multi-link**
+    #: form (plan 09): an engine on several links (e.g. AutoAim subscribing to both
+    #: ``circlet_detections`` and ``engage_directive``) lists them and addresses
+    #: each by ``name``. The two forms compose — a name from either is reachable by
+    #: ``name`` — so the single-link API is just the one-element case.
     publishes_queue: Optional[str] = None
     subscribes_queue: Optional[str] = None
+    publishes_queues: List[str] = []
+    subscribes_queues: List[str] = []
 
     def __init__(
         self,
@@ -74,8 +83,14 @@ class Engine(_Process, ABC, Generic[T]):
         self._log_queue = None
         #: Inter-engine queues, set by launch_system after construction (None =
         #: no link, e.g. when an engine runs standalone or in a unit test).
+        #: ``_publish_q`` / ``_subscribe_q`` back the single-link (name=None) path;
+        #: ``_publish_qs`` / ``_subscribe_qs`` map link name -> queue for the
+        #: multi-link path. launch_system populates the dicts with *all* this
+        #: engine's links (single + multi) so any link is reachable by name.
         self._publish_q = None
         self._subscribe_q = None
+        self._publish_qs: dict = {}
+        self._subscribe_qs: dict = {}
         self.log = get_logger(type(self).__name__)
         self._validate_wiring()
 
@@ -83,33 +98,52 @@ class Engine(_Process, ABC, Generic[T]):
     # Inter-engine pub/sub (interim queue link -- plans/03)
     # ------------------------------------------------------------------
 
-    def publish(self, message: Any) -> None:
-        """Publish ``message`` on this engine's outbound queue (last-value, non-blocking).
+    def _resolve_link(self, name: Optional[str], single, multi: dict):
+        """Pick the queue for ``name`` (or the implicit single link).
 
-        Drains any unread prior message first so the queue holds ~one item and a
-        slow consumer always reads the newest -- the same last-value semantics as
-        the camera ring buffer. No-op if this engine declares no ``publishes_queue``.
+        Explicit ``name`` -> ``multi[name]``; ``None`` -> the single-link queue,
+        else the sole multi link if there's exactly one. Returns ``None`` (callers
+        no-op) when nothing matches.
         """
-        if self._publish_q is None:
+        if name is not None:
+            return multi.get(name)
+        if single is not None:
+            return single
+        return next(iter(multi.values())) if len(multi) == 1 else None
+
+    def publish(self, message: Any, name: Optional[str] = None) -> None:
+        """Publish ``message`` on a link (last-value, non-blocking).
+
+        ``name`` selects a multi-link (``publishes_queues``); omit it for the
+        single ``publishes_queue``. Drains any unread prior message first so the
+        queue holds ~one item and a slow consumer always reads the newest -- the
+        same last-value semantics as the camera ring buffer. No-op if the engine
+        declares no matching link.
+        """
+        q = self._resolve_link(name, self._publish_q, self._publish_qs)
+        if q is None:
             return
         try:
             while True:
-                self._publish_q.get_nowait()
+                q.get_nowait()
         except _queue.Empty:
             pass
-        self._publish_q.put(message)
+        q.put(message)
 
-    def latest_subscribed(self) -> Optional[Any]:
-        """Return the newest message on the inbound queue (draining older), or None.
+    def latest_subscribed(self, name: Optional[str] = None) -> Optional[Any]:
+        """Return the newest message on a link (draining older), or None.
 
-        No-op (returns None) if this engine declares no ``subscribes_queue``.
+        ``name`` selects a multi-link (``subscribes_queues``); omit it for the
+        single ``subscribes_queue``. No-op (returns None) if the engine declares no
+        matching link.
         """
-        if self._subscribe_q is None:
+        q = self._resolve_link(name, self._subscribe_q, self._subscribe_qs)
+        if q is None:
             return None
         message = None
         try:
             while True:
-                message = self._subscribe_q.get_nowait()
+                message = q.get_nowait()
         except _queue.Empty:
             pass
         return message

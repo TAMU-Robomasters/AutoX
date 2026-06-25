@@ -6,19 +6,33 @@ from src.toolbox.globals import config
 from src.toolbox.logger import start_log_listener, stop_log_listener
 
 
+def _link_names(engine_cls, single_attr: str, multi_attr: str) -> list:
+    """Union of an engine's single-link name (if set) and its multi-link list.
+
+    The single-link form (``publishes_queue`` / ``subscribes_queue``) is just the
+    one-element case of the multi-link form (``publishes_queues`` /
+    ``subscribes_queues``); both contribute names.
+    """
+    names = list(getattr(engine_cls, multi_attr, []) or [])
+    single = getattr(engine_cls, single_attr, None)
+    if single and single not in names:
+        names.append(single)
+    return names
+
+
 def _wire_engine_queues(engine_classes: list) -> dict:
     """Build one shared queue per inter-engine pub/sub link name (plans/03).
 
-    Reads each engine class's ``publishes_queue`` / ``subscribes_queue``. Two
-    engines publishing the same name is a hard error (the global-namespace safety
-    net). A subscribe with no publisher is allowed (logs nothing yet) -- the link
-    is simply never fed. Returns ``{name: Queue}``.
+    Reads each engine class's single- *and* multi-link declarations
+    (``publishes_queue(s)`` / ``subscribes_queue(s)``). Two engines publishing the
+    same name is a hard error (the global-namespace safety net). A subscribe with
+    no publisher is allowed (logs nothing yet) -- the link is simply never fed.
+    Returns ``{name: Queue}``.
     """
     publishers: dict = {}
     names: set = set()
     for engine_cls in engine_classes:
-        pub = getattr(engine_cls, "publishes_queue", None)
-        if pub:
+        for pub in _link_names(engine_cls, "publishes_queue", "publishes_queues"):
             if pub in publishers:
                 raise RuntimeError(
                     f"Inter-engine queue {pub!r} is published by both "
@@ -27,8 +41,7 @@ def _wire_engine_queues(engine_classes: list) -> dict:
                 )
             publishers[pub] = engine_cls
             names.add(pub)
-        sub = getattr(engine_cls, "subscribes_queue", None)
-        if sub:
+        for sub in _link_names(engine_cls, "subscribes_queue", "subscribes_queues"):
             names.add(sub)
     return {name: Queue() for name in names}
 
@@ -74,13 +87,23 @@ def launch_system(engine_classes: list) -> list:
     for engine_cls in engine_classes:
         engine = engine_cls(driver_registry=registry)
         engine._log_queue = log_queue  # inherited by the child at fork (see Engine.run)
-        # Inter-engine pub/sub queues (inherited by the child at fork too).
+        # Inter-engine pub/sub queues (inherited by the child at fork too). Set the
+        # single-link handles for the name=None path, and the name->queue dicts for
+        # the multi-link path; both include every link this engine declares.
         pub = getattr(engine_cls, "publishes_queue", None)
         sub = getattr(engine_cls, "subscribes_queue", None)
         if pub:
             engine._publish_q = queue_registry[pub]
         if sub:
             engine._subscribe_q = queue_registry[sub]
+        engine._publish_qs = {
+            n: queue_registry[n]
+            for n in _link_names(engine_cls, "publishes_queue", "publishes_queues")
+        }
+        engine._subscribe_qs = {
+            n: queue_registry[n]
+            for n in _link_names(engine_cls, "subscribes_queue", "subscribes_queues")
+        }
         engine.start()
         processes.append(engine)
 
