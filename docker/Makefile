@@ -34,6 +34,10 @@ sim: ## Rig 1: Gazebo full sim (odom+scan+cmd_vel from Gazebo)
 brain: ## Run AutoX AutoNav/brain against the running stack (ROS=NAV2 MCU=MOCK)
 	$(COMPOSE) run --rm autox python main.py @MOCK_CAM @SENTRY ROS=NAV2 MCU=MOCK
 
+.PHONY: rig2
+rig2: ## Rig 2: MCU bridge <-> mock kinematic odom (/odom advances under /cmd_vel)
+	$(COMPOSE) run --rm autox bash /autox/docker/rig2_mcu_bridge.sh
+
 .PHONY: teleop
 teleop: ## Drive /cmd_vel by keyboard (rig 2 manual check)
 	$(COMPOSE) run --rm nav2 ros2 run teleop_twist_keyboard teleop_twist_keyboard

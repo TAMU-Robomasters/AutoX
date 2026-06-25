@@ -227,6 +227,23 @@
             ros:
                 stack: none            # none | nav2  (set by ROS=*)
 
+            # AutoNav / nav bridge (plan 09-sentry-nav2-behavior). The
+            # McuBridgeEngine is the inverted uart_odom_node: it polls the MCU
+            # (via McuClient, the McuDriver owns the UART) and turns its odometry
+            # into ROS /odom (+TF), and turns ROS /cmd_vel into MCU velocity. Only
+            # launched when ros.stack == nav2 and autonav.publish_odom is true
+            # (AutoX is the odom source -- real hw / the MCU harness, NOT the
+            # Gazebo full-sim where Gazebo owns /odom).
+            autonav:
+                publish_odom: true        # McuBridge publishes /odom (false in Gazebo sim)
+                odom_rate: 100.0          # Hz, MCU odometry poll -> /odom
+                cmd_vel_timeout: 0.3      # s, zero-velocity safety stop if /cmd_vel stale
+                cmd_vel_topic: "/cmd_vel"
+                publish_tf: true          # broadcast odom->base_link TF
+                odom_frame: "odom"
+                base_frame: "base_link"
+                embedded_odom_frame: "embedded_odom"
+
             # Full-state estimator backend. `method` only applies to the ARCHIVED
             # engine (the live engine is Kalman-filter-only); the rest configures
             # the live engine's online constant learning (state 1).
