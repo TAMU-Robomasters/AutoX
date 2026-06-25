@@ -250,10 +250,19 @@
                 # (match amcl's set_initial_pose); yaw is ignored (MCU owns it).
                 tick_rate: 10.0           # Hz, brain tick + nav goal management
                 map_frame: "map"
+                # Localization the nav stack uses. "amcl": seed initial_pose +
+                # wait for amcl + bt_navigator (real hw / AMCL sim). Anything else
+                # (e.g. "slam_toolbox", "none"): skip the initial pose and just
+                # wait for the NavigateToPose action server (the Gazebo sim runs
+                # SLAM toolbox, which has no amcl to wait on).
+                nav2_localizer: "amcl"
                 initial_pose: [0.0, 0.0]  # amcl init (x, y)
-                waypoints:                # patrol points (x, y), looped
-                    - [0.786, 1.47]
-                    - [3.73, 1.44]
+                # Patrol points (x, y), map frame, looped. These are small
+                # sim-reachable defaults (the Gazebo my_world is open near origin);
+                # replace with the real field's waypoints for deployment.
+                waypoints:
+                    - [0.8, 0.0]
+                    - [0.0, 0.0]
                 evade_offset: 0.4         # m, lateral side-step amplitude on contact
                 # Auto-aim engage interlock (Phase 5). engage_staleness_s: a brain
                 # engage directive older than this is ignored (auto-aim fails OPEN

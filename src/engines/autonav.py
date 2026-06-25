@@ -80,9 +80,17 @@ class AutoNav(Engine[NullContext]):
         if not rclpy.ok():
             rclpy.init()
         self._nav = BasicNavigator()
-        self._nav.setInitialPose(self._pose(*self._last_xy))
-        self.log.info("AutoNav waiting for nav2 to become active…")
-        self._nav.waitUntilNav2Active()  # blocks until amcl + bt_navigator ACTIVE
+        if cfg.nav2_localizer == "amcl":
+            # AMCL: seed the initial pose, then wait for amcl + bt_navigator ACTIVE.
+            self._nav.setInitialPose(self._pose(*self._last_xy))
+            self.log.info("AutoNav waiting for nav2 (amcl) to become active…")
+            self._nav.waitUntilNav2Active()
+        else:
+            # SLAM / external localization: no initial pose to seed; just wait for
+            # the NavigateToPose action server (localizer-agnostic).
+            self.log.info("AutoNav waiting for the NavigateToPose action server…")
+            while not self._nav.nav_to_pose_client.wait_for_server(timeout_sec=2.0):
+                self.log.info("…still waiting for /navigate_to_pose")
         self.log.info(
             "nav2 active — sentry brain online (%d waypoints, evade ±%.2fm)",
             len(self._waypoints),
