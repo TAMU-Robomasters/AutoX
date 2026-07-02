@@ -12,16 +12,20 @@ values you find here are exactly what the robot will apply.
 
 V4L2 (USB UVC) cameras only -- it shells out to ``v4l2-ctl``.
 
+Works over X11 forwarding (``ssh -X``): the live preview scales itself to
+whatever size you make the window, so shrink the window to cut X11 bandwidth
+on a slow link.
+
 Usage:
-    uv run python utils/camera_tuning/tune_camera.py
-    uv run python utils/camera_tuning/tune_camera.py --device /dev/video0 \
+    uv run python utils/tune_camera.py
+    uv run python utils/tune_camera.py --device /dev/video0 \
         --width 1280 --height 720 --fps 90
-    uv run python utils/camera_tuning/tune_camera.py --no-preview
+    uv run python utils/tune_camera.py --no-preview
 
 Buttons:
     Reset defaults  -- set every (active) control back to its V4L2 default.
     Export settings -- write a v4l2-ctl shell command + an info.yaml snippet to
-                       utils/camera_tuning/camera_settings.txt (also printed on quit).
+                       utils/camera_settings.txt (also printed on quit).
 """
 
 from __future__ import annotations
@@ -187,8 +191,20 @@ class TunerApp:
     def __init__(self, device: str, width: int, height: int, fps: int, preview: bool):
         self.device = device
         self.controls = query_controls(device)
-        self.root = tk.Tk()
+        try:
+            self.root = tk.Tk()
+        except tk.TclError as e:
+            raise RuntimeError(
+                f"cannot open display ({e}). Over ssh, reconnect with `ssh -X` "
+                "(or `ssh -Y`) so X11 forwarding is enabled, or set DISPLAY "
+                "(e.g. `export DISPLAY=:0` when a monitor is attached)."
+            ) from e
         self.root.title(f"Camera tuner -- {device}")
+        # Start no bigger than the screen (X11 forwarded displays can be small)
+        # and let the user shrink it -- the preview adapts to whatever fits.
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self.root.geometry(f"{min(1260, sw - 40)}x{min(640, sh - 60)}")
+        self.root.minsize(520, 320)
         self.widgets: Dict[str, Dict] = {}  # name -> {var, widget, control}
 
         self._build_ui()
@@ -235,13 +251,22 @@ class TunerApp:
         for ctrl in tunable:
             self._add_control_row(ctrl)
 
-        # Right: preview.
-        right = ttk.Frame(outer)
-        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        # Right: preview. The frame is sized by the window layout only
+        # (grid_propagate(False)), never by its contents -- otherwise a bigger
+        # preview image would grow the label, which would grow the frame, which
+        # would grow the next preview image, and the window would run away.
+        # _update_preview reads this frame's current size each tick and scales
+        # the camera frame to fit, so resizing the window resizes the preview
+        # (make it small over a slow X11 link, fullscreen it locally).
+        self._preview_frame = ttk.Frame(outer, width=740, height=560)
+        self._preview_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        self._preview_frame.grid_propagate(False)
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(0, weight=1)
-        self._preview_label = ttk.Label(right, text="(preview loading...)")
-        self._preview_label.pack(fill="both", expand=True)
+        self._preview_label = ttk.Label(
+            self._preview_frame, text="(preview loading...)", anchor="center"
+        )
+        self._preview_label.place(relx=0.5, rely=0.5, anchor="center")
 
         # Bottom: buttons + status.
         bar = ttk.Frame(outer, padding=(0, 8, 0, 0))
@@ -429,8 +454,15 @@ class TunerApp:
             from PIL import Image, ImageTk
 
             h, w = frame.shape[:2]
-            scale = min(720 / w, 540 / h, 1.0)
-            disp = cv2.resize(frame, (int(w * scale), int(h * scale)))
+            # Fit the frame to the preview area's *current* size (adaptive:
+            # follows window resizes). Fall back to a sane size before the
+            # first layout pass, when winfo_* still reports 1.
+            fw = self._preview_frame.winfo_width()
+            fh = self._preview_frame.winfo_height()
+            if fw < 50 or fh < 50:
+                fw, fh = 720, 540
+            scale = min(fw / w, fh / h)
+            disp = cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale))))
             rgb = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
             img = ImageTk.PhotoImage(Image.fromarray(rgb))
             self._preview_label.configure(image=img, text="")

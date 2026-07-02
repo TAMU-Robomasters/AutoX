@@ -180,7 +180,7 @@ class CameraSource:
         - ``hardware.camera_controls`` (a mapping of ``v4l2-ctl --set-ctrl``
           names to values, e.g. ``brightness``, ``contrast``, ``gain``):
           applied verbatim. This is the authoritative, tunable control set --
-          edit it with ``utils/camera_tuning/tune_camera.py``.
+          edit it with ``utils/tune_camera.py``.
 
         Insertion order is preserved, so put any "enable" toggle before the
         value it gates (e.g. ``white_balance_automatic`` before
