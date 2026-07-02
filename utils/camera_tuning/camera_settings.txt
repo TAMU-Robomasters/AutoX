@@ -1,0 +1,28 @@
+# Camera settings tuned on 2026-06-18 22:23:02
+# device: /dev/video0
+
+# Apply all controls at once:
+v4l2-ctl -d /dev/video0 --set-ctrl auto_exposure=1 --set-ctrl backlight_compensation=36 --set-ctrl brightness=0 --set-ctrl contrast=10 --set-ctrl exposure_time_absolute=15 --set-ctrl focus_absolute=347 --set-ctrl focus_automatic_continuous=1 --set-ctrl gain=150 --set-ctrl gamma=110 --set-ctrl hue=0 --set-ctrl pan_absolute=0 --set-ctrl power_line_frequency=2 --set-ctrl saturation=100 --set-ctrl sharpness=2 --set-ctrl tilt_absolute=0 --set-ctrl white_balance_automatic=1 --set-ctrl white_balance_temperature=4600 --set-ctrl zoom_absolute=0
+
+# Per-control values:
+#   auto_exposure = 1
+#   backlight_compensation = 36
+#   brightness = 0
+#   contrast = 10
+#   exposure_time_absolute = 15
+#   focus_absolute = 347
+#   focus_automatic_continuous = 1
+#   gain = 150
+#   gamma = 110
+#   hue = 0
+#   pan_absolute = 0
+#   power_line_frequency = 2
+#   saturation = 100
+#   sharpness = 2
+#   tilt_absolute = 0
+#   white_balance_automatic = 1
+#   white_balance_temperature = 4600
+#   zoom_absolute = 0
+
+# info.yaml (src/info.yaml hardware block) exposure field:
+#   camera_exposure: 15

@@ -536,7 +536,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
                 active_cv_state = self._run_full_state_init(name)
             else:
                 active_cv_state = self._run_full_state_tracking(name)
-            self.log.debug("estimate before state pipeline: %s", self.ctx.estimate)
+            # self.log.debug("estimate before state pipeline: %s", self.ctx.estimate)
             self._publish_solution(active_cv_state)
 
         self._pace(start)
@@ -578,10 +578,18 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         if not fresh or self.ctx.target_robot is None:
             self.ctx.new_observation = False
             return
-
+        # self.log.debug("panels after selection: %s", self.ctx.target_robot.panels)
         # Transform panel poses into the turret frame via the MCU.
         frame_ts = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
         frame_delay_ms = int((time.perf_counter() - frame_ts) * 1000)
+        # The MCU protocol carries frameDelay_ms as a single unsigned byte, so a
+        # value >255 wraps mod 256 (snapping back toward zero). Clamp instead.
+        if frame_delay_ms > 255:
+            self.log.warning(
+                "frame_delay_ms=%d exceeds the 255ms wire limit; clamping (pipeline lagging?)",
+                frame_delay_ms,
+            )
+            frame_delay_ms = 255
         transformation_data = self.mcu.get_transformation(frame_delay_ms)
         if transformation_data is None:
             self.log.warning("no transformation data from embedded; predicting only")
@@ -590,6 +598,10 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
             _turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
             _transform_panels_to_turret_frame(panels, camera_to_turret_matrix)
             self.ctx.new_observation = True
+            if self._queue is not None and self.ctx.target_robot is not None and self.ctx.target_robot.panels:
+                panel_position = self.ctx.target_robot.panels[0].position
+                if panel_position is not None:
+                    self._queue.put_nowait(float(panel_position[0]))
 
     def _pace(self, start: float) -> None:
         """Sleep only enough to keep the loop under the ``loop_hz`` cap."""
@@ -615,13 +627,13 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
 
     def update(self) -> None:
         """Send the latest solution to the MCU and service the display."""
-        self.log.debug(
-            "to embedded: pitch=%.2fdeg yaw=%.2fdeg align=%dms cv_state=%d",
-            np.rad2deg(self._last_pitch),
-            np.rad2deg(self._last_yaw),
-            self.alignment_time_ms,
-            self.cv_state,
-        )
+        # self.log.debug(
+        #     "to embedded: pitch=%.2fdeg yaw=%.2fdeg align=%dms cv_state=%d",
+        #     np.rad2deg(self._last_pitch),
+        #     np.rad2deg(self._last_yaw),
+        #     self.alignment_time_ms,
+        #     self.cv_state,
+        # )
         self.mcu.send_solution(
             pitch=self._last_pitch,
             yaw=self._last_yaw,

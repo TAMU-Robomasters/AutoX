@@ -158,7 +158,7 @@ class FullStateContinuousFireModule(Module[FullStateAutoAimContext]):
         # constant-velocity extrapolation -- no estimator instance needed.
         time_since_estimate = time.perf_counter() - estimate.timestamp
         pred = FullStateKF.predict_ahead(estimate.value, time_since_estimate + BALLISTIC.lookahead_time)
-
+        self.log.debug("predicted_state %.2f %.2f %.2f", pred[0], pred[1], estimate.aim_z)
         p_t = np.array(
             [pred[0] / METERS_TO_CM, pred[1] / METERS_TO_CM, estimate.aim_z / METERS_TO_CM]
         )

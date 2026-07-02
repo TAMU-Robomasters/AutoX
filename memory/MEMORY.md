@@ -1,0 +1,1 @@
+- [Jetson UART PIO DTB fix](jetson-uart-pio-dtb-fix.md) — this AGX Orin's ttyTHS1 RX was zeroed by a JetPack 6.2.2 DMA regression; fixed with a custom PIO DTB + extlinux entry

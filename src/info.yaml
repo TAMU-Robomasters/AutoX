@@ -118,8 +118,8 @@
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.
-                level: INFO              # root level for all autox.* loggers
-                levels: {}                 # per-logger overrides, e.g. {panel_tracking: DEBUG}
+                level: DEBUG           # root level for all autox.* loggers
+                levels: {full_state_autoaim: DEBUG, embedded_communicator: DEBUG}                 # per-logger overrides, e.g. {panel_tracking: DEBUG}
                 to_file: false             # also write to (path_to) log_file (rotating)
                 max_file_mb: 20
                 backup_count: 3
@@ -132,6 +132,13 @@
             mock:
                 enable: False    # when true, modules use @mock methods instead of @real
                 hardware: []     # list of available hardware (e.g. ["jetson", "gpu"]). methods with @real(requires="X") fall back to mock if X is not listed here.
+
+            # Live matplotlib plot (src/engines/plot_engine.py) of the locked
+            # target's turret-frame x position (cm), spawned as a separate
+            # process by orchestrator.start_engines. Set false to disable
+            # entirely -- zero queue/process overhead in the auto-aim engine.
+            plot:
+                enable: false
 
             # Full-state auto-aim engine loop + target-lock policy.
             autoaim:
@@ -168,6 +175,11 @@
                 timeout: 0.05
                 serial_baudrate: 460800
                 serial_port: "/dev/ttyTHS1"
+                # Fixed per-robot correction (ms) added to the measured frame
+                # delay before it's sent to embedded, to account for that
+                # robot's fixed pipeline latency (camera/serial) not captured
+                # by the frame timestamp. Overridden per-robot profile below.
+                frame_delay_offset_ms: 0
 
             # MCU bridge driver (see plans/01-mcu-driver.md). One process owns the
             # UART; engines talk to it via McuClient. backend is overridden by the
@@ -271,6 +283,8 @@
             ballistic:                               # 17mm; proj_vel/feeder = default
                 barrel_offset: [0.0325, 0.150, 0.0]  # [bx, by, bz] m; per-robot
                 yaw_offset: 0                         # deg; per-robot
+            communication:
+                frame_delay_offset_ms: 0  # placeholder -- tune per-robot on-robot
 
         STANDARD:
             bot: standard
@@ -305,6 +319,8 @@
             ballistic:                               # 17mm; proj_vel/feeder = default
                 barrel_offset: [0.0325, 0.150, 0.0]  # [bx, by, bz] m; per-robot
                 yaw_offset: 0                         # deg; per-robot
+            communication:
+                frame_delay_offset_ms: 0  # placeholder -- tune per-robot on-robot
 
         HERO:                      # 42mm hero. Self-contained: just `@HERO`
                                    # (bundles camera + classical detector + ballistics).
@@ -312,12 +328,33 @@
             hardware:
                 camera: usb_cam
                 camera_index: 0
-                camera_exposure: 50
+                camera_exposure: 10  # manual exposure (units 100µs); also drives
+                                      # auto_exposure=1 + exposure_time_absolute below.
                 camera_fps: 90
                 camera_width: 1280
                 camera_height: 720
                 camera_intrinsics_path: "mrcal_hero_1280x720"
                 lens_correction_mode: normal
+                # Full V4L2 camera-control set, applied once at capture start by
+                # src/drivers/video_stream.py (`CameraSource._apply_controls`).
+                # Each entry is exactly `v4l2-ctl --set-ctrl <name>=<value>`;
+                # controls the camera doesn't support are skipped (logged at
+                # debug). Tune these live and copy the values out with
+                # utils/camera_tuning/tune_camera.py ("Export settings").
+                # camera_exposure above already sets exposure; everything else
+                # (image look + white balance) lives here.
+                camera_controls:
+                    brightness:                0     # [-64, 64]   default 0
+                    contrast:                  0    # [0, 95]     default 32
+                    saturation:                100    # [0, 100]    default 64
+                    hue:                       0     # [-2000,2000] default 0
+                    gamma:                     110   # [72, 500]   default 100
+                    gain:                      120    # [0, 100]    default 0; raises brightness + noise
+                    sharpness:                 2     # [0, 7]      default 2
+                    backlight_compensation:    36     # [0, 2]      default 1
+                    power_line_frequency:      2     # 0=off 1=50Hz 2=60Hz (US)
+                    white_balance_automatic:   1     # 1=auto; set 0 to use the manual temp below
+                    white_balance_temperature: 4600  # [2800, 6500] K; only used when auto=0
             # Classical-detector params are camera-dependent, so they're per-robot.
             # (live_tuning + show_icon_filters stay global -- they're debug toggles.)
             classical:
@@ -337,11 +374,22 @@
                 score_thresh: 200
                 icon_adaptive_thresh: [ 101, -5 ]
                 icon_tolerance: 55
+            communication:
+                timeout: 0.05
+                serial_baudrate: 460800
+                frame_delay_offset_ms: 80  # placeholder -- tune per-robot on-robot
             ballistic:
-                projectile_velocity: 1600 # cm/s; placeholder -- tune on-robot (42mm muzzle vel)
-                feeder_delay_s: -0.07     # s; placeholder -- tune the hero feeder lead on-robot
-                barrel_offset: [0.0325, 0.150, 0.0]  # [bx, by, bz] m; placeholder -- hero barrel tip offset
+                projectile_velocity: 1470 # cm/s; placeholder -- tune on-robot (42mm muzzle vel)
+                feeder_delay_s: 60     # s; placeholder -- tune the hero feeder lead on-robot
+                barrel_offset: [-0.000193, 0.227483, 0.001887]  # [bx, by, bz] m; placeholder -- hero barrel tip offset
                 yaw_offset: 0             # deg; placeholder -- hero horizontal aim offset
+                omega_spin_threshold: 3.0        # rad/s; above → shot timing, at/below → continuous fire
+                # Single-panel solver validity gates (state 1 / 2a): outside
+                # these the engine keeps aiming but holds fire (cv_state NO_TARGET).
+                max_time_of_flight: 5.0   # s
+                max_range: 800            # cm, horizontal
+                solver_tol: 1.0e-4        # LM residual tolerance (metres)
+                lookahead_time: 0.14  
 
         GPU=NONE:
             model:

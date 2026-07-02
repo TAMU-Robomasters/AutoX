@@ -1,4 +1,26 @@
 #!/usr/bin/env bash
-ps aux | grep -v $$ | grep -v grep |  grep -E "cv_dark|cv_lite" | awk '{ print $2 }' | sudo xargs kill -9 2>/dev/null
-ps aux | grep -v $$ | grep -v grep |  grep -E "cv_dark|cv_lite" | awk '{ print $2 }' | sudo xargs kill -9 2>/dev/null
-ps aux | grep -v $$ | grep -v grep |  grep -E "cv_dark|cv_lite" | awk '{ print $2 }' | sudo xargs kill -9 2>/dev/null
+#
+# Fully stop AutoX from running on boot.
+#
+#   - stops the running service now
+#   - DISABLES it so it will NOT come back on the next reboot
+#   - kills any lingering `uv run main.py` / main.py processes
+#
+# Re-enable it later with:  ./utils/xavier_setup_boot_script.sh
+# To only stop it for this session (keep it enabled on boot), use:
+#   sudo systemctl stop autox
+
+SERVICE_NAME="autox"
+
+echo "Stopping and disabling ${SERVICE_NAME} (so it won't boot again)..."
+# stop kills the whole cgroup (main.py + children); disable removes it from boot
+sudo systemctl disable --now "${SERVICE_NAME}" 2>/dev/null
+
+# belt-and-suspenders: kill anything still running the app outside the service
+sudo pkill -9 -f "boot_command.ignore.sh" 2>/dev/null
+sudo pkill -9 -f "uv run main.py"          2>/dev/null
+sudo pkill -9 -f "[m]ain.py"               2>/dev/null
+
+echo "Done. AutoX is stopped and will not start on boot."
+echo "Status: $(systemctl is-enabled ${SERVICE_NAME} 2>/dev/null || echo 'not installed') / $(systemctl is-active ${SERVICE_NAME} 2>/dev/null || echo inactive)"
+exit 0
