@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# Permanently disable the AutoX autoboot and kill any running instance.
+# Undoes ./utils/setup_boot_script.sh.
+#
+SERVICE_NAME="autox_boot"
+
+echo "Stopping + disabling $SERVICE_NAME ..."
+sudo systemctl stop "$SERVICE_NAME"    2>/dev/null || true
+sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+sudo rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+sudo systemctl daemon-reload
+sudo systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
+
+# backstop: kill any lingering wrapper / app processes (systemd usually already
+# reaped the whole cgroup, but run a few passes to be sure)
+echo "Killing any lingering autoboot / 'uv run main.py' processes ..."
+for _ in 1 2 3; do
+    sudo pkill -9 -f "autox_boot.sh" 2>/dev/null || true
+    sudo pkill -9 -f "uv run main.py" 2>/dev/null || true
+    sudo pkill -9 -f "main.py"        2>/dev/null || true
+done
+
+echo "Done. Autoboot removed; it will NOT start on next boot."
