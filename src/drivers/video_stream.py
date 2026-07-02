@@ -37,9 +37,12 @@ import numpy as np
 
 from src.core.driver import Driver
 from src.toolbox.globals import config, path_to
+from src.toolbox.logger import get_logger
 from src.types.autoaim import Frame
 
 DEFAULT_FRAME_SERVICE = "autox/frames"
+
+_log = get_logger("video_stream")
 
 
 # ---------------------------------------------------------------------------
@@ -166,17 +169,52 @@ class CameraSource:
         )
         return f"/dev/video{index}"
 
-    def _apply_controls(self, device: str) -> None:
-        """Replicate OpenCV's manual-exposure setup via v4l2 controls."""
+    def _desired_controls(self) -> "dict[str, int]":
+        """Resolve the full set of v4l2 controls to apply, from config.
+
+        Two config sources, merged in this order (later overrides earlier):
+
+        - ``hardware.camera_exposure`` (legacy shorthand, also read by the
+          OpenCV streaming paths): expands to manual exposure
+          (``auto_exposure=1`` + ``exposure_time_absolute``).
+        - ``hardware.camera_controls`` (a mapping of ``v4l2-ctl --set-ctrl``
+          names to values, e.g. ``brightness``, ``contrast``, ``gain``):
+          applied verbatim. This is the authoritative, tunable control set --
+          edit it with ``utils/camera_tuning/tune_camera.py``.
+
+        Insertion order is preserved, so put any "enable" toggle before the
+        value it gates (e.g. ``white_balance_automatic`` before
+        ``white_balance_temperature``).
+        """
+        controls: "dict[str, int]" = {}
         exposure = getattr(config.hardware, "camera_exposure", None)
-        if exposure is None:
-            return
-        subprocess.run(
-            ["v4l2-ctl", "-d", device,
-             "--set-ctrl", "auto_exposure=1",  # 1 = Manual Mode
-             "--set-ctrl", f"exposure_time_absolute={int(exposure)}"],
-            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+        if exposure is not None:
+            controls["auto_exposure"] = 1  # 1 = Manual Mode
+            controls["exposure_time_absolute"] = int(exposure)
+        extra = getattr(config.hardware, "camera_controls", None)
+        if extra:
+            for name, value in dict(extra).items():
+                if value is not None:
+                    controls[name] = int(value)
+        return controls
+
+    def _apply_controls(self, device: str) -> None:
+        """Apply each configured v4l2 control via ``v4l2-ctl --set-ctrl``.
+
+        Controls are set one at a time so an unsupported/invalid control on a
+        given camera is skipped (logged at debug) instead of aborting the rest.
+        """
+        for name, value in self._desired_controls().items():
+            result = subprocess.run(
+                ["v4l2-ctl", "-d", device, "--set-ctrl", f"{name}={value}"],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            if result.returncode != 0:
+                _log.debug(
+                    "skipped v4l2 control %s=%s on %s: %s",
+                    name, value, device,
+                    result.stderr.decode(errors="replace").strip(),
+                )
 
     def open(self) -> None:
         """Start ffmpeg capture + the background reader thread."""

@@ -557,7 +557,7 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
                 active_cv_state = self._run_full_state_init(name)
             else:
                 active_cv_state = self._run_full_state_tracking(name)
-            self.log.debug("estimate before state pipeline: %s", self.ctx.estimate)
+            # self.log.debug("estimate before state pipeline: %s", self.ctx.estimate)
             self._publish_solution(active_cv_state)
 
         self._pace(start)
@@ -599,12 +599,18 @@ class FullStateAutoAimEngine(Engine[FullStateAutoAimContext]):
         if not fresh or self.ctx.target_robot is None:
             self.ctx.new_observation = False
             return
-
         # Transform panel poses into the turret frame via the MCU.
         frame_ts = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
         measured_delay_ms = int((time.perf_counter() - frame_ts) * 1000)
-        # Tunable bias trim (config.ballistic.frame_delay_offset_ms); clamped to
-        # the u8 wire range so a large/negative offset can't wrap the byte.
+        # Tunable bias trim (config.ballistic.frame_delay_offset_ms), then clamp to
+        # the u8 wire range so a large/negative offset can't wrap the byte. The MCU
+        # protocol carries frameDelay_ms as a single unsigned byte (>255 wraps mod
+        # 256), so warn if the measured age alone already blew the limit.
+        if measured_delay_ms > 255:
+            self.log.warning(
+                "frame_delay_ms=%d exceeds the 255ms wire limit; clamping (pipeline lagging?)",
+                measured_delay_ms,
+            )
         frame_delay_ms = int(
             np.clip(measured_delay_ms + config.ballistic.frame_delay_offset_ms, 0, 255)
         )

@@ -98,9 +98,10 @@ class SinglePanelBallisticModule(Module[FullStateAutoAimContext]):
         result = solve_no_spin(self._barrel, self._v, self._g, p_t, v_t, tol=self._tol, a_t=a_t)
         if not result["success"] or not (0.0 < result["time"] < self._max_tof):
             self.log.warning(
-                "no valid solution (residual=%.4f, t=%.2fs) -- tracking only",
+                "no valid solution (residual=%.4f, t=%.2fs) -- tracking only. result: %s",
                 result["residual"],
                 result["time"],
+                result["success"],
             )
             return self._track_only(p_t)
 

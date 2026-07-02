@@ -2,7 +2,7 @@
     'lensmodel':  'LENSMODEL_PINHOLE',
 
     # intrinsics are fx,fy,cx,cy,distortion0,distortion1,....
-    'intrinsics': [ 1020.333828, 1020.464542, 604.9683689, 312.9312336,],
+    'intrinsics': [ 1828.252808, 1826.07977, 592.9851776, 345.7059411,],
 
     # extrinsics are rt_fromref
     'extrinsics': [ 0, 0, 0, 0, 0, 0,],

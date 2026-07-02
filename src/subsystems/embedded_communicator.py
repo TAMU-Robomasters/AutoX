@@ -15,6 +15,9 @@ import numpy.typing as npt
 import serial
 
 from src.toolbox.globals import config
+from src.toolbox.logger import get_logger
+
+log = get_logger("embedded_communicator")
 
 # Serial read timeout (upper bound) for the transform query/response round-trip.
 # read() returns the instant all bytes land, so the happy-path latency is just
@@ -112,16 +115,21 @@ class EmbeddedCommunicator:
             ``(yaw, pitch, 4x4_matrix)`` or ``None`` on failure.
         """
         if self.port is None:
-            print("warning: serial port not available for embedded communication")
+            log.warning("serial port not available for embedded communication")
             return None
         # Clear any stale/partial bytes so the reply we read is frame-aligned to
         # this query (a prior timed-out read could otherwise leave leftover bytes
         # that desync this one into a garbage matrix).
         self.port.reset_input_buffer()
-        if self._send_query_to_embedded(milliseconds_in_the_past):
+        # The caller (engine) has already applied the per-robot frame-delay offset
+        # and clamped to the u8 wire range; this is a dumb transport.
+        frame_delay_ms = milliseconds_in_the_past
+        log.debug("frame_delay_ms=%d", frame_delay_ms)
+        if self._send_query_to_embedded(frame_delay_ms):
             msg = self._read_transformation_message()
             if msg is not None:
                 matrix = np.array([*msg.matrix], dtype=np.float64).reshape((4, 4))
+                log.debug("Received transformation: yaw=%.2f, pitch=%.2f", msg.yaw, msg.pitch)
                 return msg.yaw, msg.pitch, matrix
         return None
 

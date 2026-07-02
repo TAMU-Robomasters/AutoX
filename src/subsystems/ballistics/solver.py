@@ -144,7 +144,7 @@ def solve_no_spin(
     result = root(f, init_guess(p_t, s, g), method="lm", tol=tol)
     residual = float(np.linalg.norm(f(result.x)))
     return {
-        "success": residual < tol,
+        "success": residual < tol and 0.0 < result.x[2] < np.inf,
         "yaw": float(result.x[0]),
         "pitch": float(result.x[1]),
         "time": float(result.x[2]),
