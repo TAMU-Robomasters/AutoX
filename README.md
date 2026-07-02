@@ -98,6 +98,28 @@ log:
 The auto-aim engine logs every state transition at INFO, so watching the console tells you
 when it's learning vs tracking and when it saves a robot's constants.
 
+# Autoboot (run AutoX on every boot)
+
+On the robot AutoX starts itself at boot via a **systemd service**, so nothing has to be
+launched by hand at competition. Profiles come from `src/local_data.ignore.yaml`
+(`selected_profiles`), so the boot command takes no CLI args.
+
+```sh
+./utils/setup_boot_script.sh     # install + enable autox_boot.service (restarts on crash)
+./utils/kill_onboot_cv           # stop + disable it permanently
+```
+
+- **Status / logs:** `systemctl status autox_boot.service`, `tail -f ~/boot.log` (the
+  wrapper `utils/autox_boot.sh` mirrors stdout there; the previous boot is kept as
+  `~/boot.old.log`), or `journalctl -u autox_boot.service -f`.
+- **Stop just for this session** (returns on reboot): `sudo systemctl stop autox_boot.service`.
+- The service **owns the camera** and its iceoryx2 publisher. Running a second
+  `uv run main.py` by hand while it's active collides on the shared-memory publisher
+  (`ExceedsMaxSupportedPublishers`) and shows no frames — so `main.py` guards against this
+  (`src/toolbox/autoboot_check.py`): a **manual** run aborts with instructions when the
+  service is active, while the boot-launched instance is exempt (it spots the unit in its
+  own `/proc/self/cgroup`). To develop with the display, stop the service first.
+
 # At the competition
 TODO
 
@@ -111,5 +133,10 @@ cd repos
 git clone git@github.com:TAMU-Robomasters/cv_lite.git
 cd cv_lite
 sudo ./run/xavier_reset_zerotier
-sudo ./run/xavier_setup_boot_script.js
+```
+
+Then install the autoboot service so AutoX runs on every boot (see **Autoboot** above):
+
+```sh
+./utils/setup_boot_script.sh
 ```

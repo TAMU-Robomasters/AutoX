@@ -49,7 +49,7 @@ from src.types.autoaim import (
 def _default_full_state_kf(r: float = 23.5) -> FullStateKF:
     """Create a FullStateKF; the centre-position backend follows config.estimation.motion_model."""
     position_kf = make_position_estimator(
-        r_pos=5.0,
+        r_pos=18.0,
         r=r,
         init_std=(100.0, 100.0, 10.0, 10.0),
     )

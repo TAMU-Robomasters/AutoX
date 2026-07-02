@@ -113,7 +113,7 @@
                 testing:
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
-                disable_all_logging: false # kill switch: logging.disable() everywhere (perf)
+                disable_all_logging: true # kill switch: logging.disable() everywhere (perf)
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.
@@ -124,7 +124,7 @@
                 backup_count: 3
                 save_frame_to_file: false
                 display_live_frames: false
-                live_plot: true         # spawn the rolling debug plot (transformed panel x)
+                live_plot: false         # spawn the rolling debug plot (transformed panel x)
                 save_depth: false
                 estimated_framerate: 40 # based on yolov8 and recent tests. Not the worst thing if this number is wrong (even very wrong)
                 save_rate: 20 # once every __ frames

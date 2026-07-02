@@ -89,9 +89,15 @@ plan for whatever you're tackling.
 
 ## Recurring gotchas
 
-- The autobooted **`cv_dark_boot.service`** (Armor-Panel-Classical) grabs the camera
-  on boot. Free it with `sudo systemctl stop cv_dark_boot.service` (sudo password in
-  `~/.pass`). It returns on reboot.
+- AutoX's own autobooted **`autox_boot.service`** runs `uv run main.py` on boot and owns
+  the camera + iceoryx2 publisher; a second manual `uv run main.py` collides
+  (`ExceedsMaxSupportedPublishers`, blank display). `main.py` now guards against it
+  (`src/toolbox/autoboot_check.py`) — free the camera for dev with
+  `sudo systemctl stop autox_boot.service` (returns on reboot; `./utils/kill_onboot_cv` to
+  disable for good). Installed by `utils/setup_boot_script.sh`.
+- The autobooted **`cv_dark_boot.service`** (Armor-Panel-Classical, a *different* repo)
+  grabs the camera on boot. Free it with `sudo systemctl stop cv_dark_boot.service` (sudo
+  password in `~/.pass`). It returns on reboot.
 - Don't `pkill -f <string>` where `<string>` appears in your own command line — it
   self-matches and kills your shell. Kill by PID.
 - Engines that declare `drivers` MUST be launched via `launch_system`, not
