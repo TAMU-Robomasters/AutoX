@@ -130,7 +130,8 @@ class SpinningTargetAutoAimEngine(Engine[EkfAutoAimContext]):
                 self.ctx.new_observation = False
             else:
                 turret_yaw, _turret_pitch, camera_to_turret_matrix = transformation_data
-                transform_panels_to_turret_frame(
+
+                transform_camera_to_turret_frame(
                     panels, camera_to_turret_matrix, turret_yaw
                 )
                 self.ctx.new_observation = True

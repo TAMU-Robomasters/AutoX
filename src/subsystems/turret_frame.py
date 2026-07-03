@@ -17,7 +17,7 @@ from src.types.autoaim import ArmorPanel
 METERS_TO_CM = 100.0
 
 
-def transform_panels_to_turret_frame(
+def transform_camera_to_turret_frame(
     panels: Iterable[ArmorPanel],
     camera_to_turret_matrix: np.ndarray,
     turret_yaw: float,
