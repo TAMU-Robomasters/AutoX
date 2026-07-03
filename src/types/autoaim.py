@@ -265,3 +265,33 @@ class FullStateAutoAimContext(Context):
 
     # -- ballistics ---------------------------------------------------------
     solution: Optional[BallisticSolution] = None  # produced by the active ballistic module
+
+
+@dataclass
+class EkfAutoAimContext(Context):
+    """Context for the single, fixed-radius, constant-rate spinning-target pipeline.
+
+    One target (no classification/targeting/state-machine): whatever panels the
+    detector returns are *it*. All 3 panels sit at the same height on arms of
+    equal radius, so there is no per-parity radius or inter-pair height delta --
+    a single orbit radius and one HeightKF suffice.
+    """
+
+    # -- engine-written (frame pacing / MCU transform), read by modules ------
+    start_loop_time: Optional[float] = None
+    frame: Optional[np.ndarray] = None
+    frame_ts: Optional[float] = None
+    # True once this loop's panels have been transformed into the turret frame.
+    new_observation: bool = False
+
+    # -- vision ---------------------------------------------------------------
+    # Held non-None by the engine while a target is locked (incl. brief coast
+    # ticks); set to None only on true target loss so the estimator knows to
+    # stop. Produced by the detection module on fresh frames.
+    panels: Optional[List[ArmorPanel]] = None
+
+    # -- estimation -----------------------------------------------------------
+    estimate: Optional[RobotStateEstimate] = None
+
+    # -- ballistics -----------------------------------------------------------
+    solution: Optional[BallisticSolution] = None

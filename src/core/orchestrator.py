@@ -4,9 +4,29 @@ import inspect
 from multiprocessing import Queue
 from typing import Optional
 
-from src.engines.full_state_autoaim import FullStateAutoAimEngine
 from src.toolbox.globals import config
 from src.toolbox.logger import get_logger, start_log_listener, stop_log_listener
+
+
+def _select_engine_class():
+    """Resolve the production engine class from ``config.engine``.
+
+    Selected per profile (e.g. ``@AERIAL`` sets ``engine: spinning_target``);
+    defaults to the full-state ground-robot engine. Imports lazily so a build
+    missing one engine's deps can still run the other.
+    """
+    engine = getattr(config, "engine", "full_state")
+    if engine == "spinning_target":
+        from src.engines.spinning_target_autoaim import SpinningTargetAutoAimEngine
+
+        return SpinningTargetAutoAimEngine
+    if engine == "full_state":
+        from src.engines.full_state_autoaim import FullStateAutoAimEngine
+
+        return FullStateAutoAimEngine
+    raise ValueError(
+        f"Unknown config.engine={engine!r}; expected 'full_state' or 'spinning_target'."
+    )
 
 
 def launch_system(engine_classes: list, plot_queue: Optional[Queue] = None) -> list:
@@ -85,7 +105,9 @@ def start_engines() -> None:
         )
         plot_proc.start()
 
-    processes = launch_system([FullStateAutoAimEngine], plot_queue=plot_queue)
+    engine_cls = _select_engine_class()
+    log.info("starting engine: %s", engine_cls.__name__)
+    processes = launch_system([engine_cls], plot_queue=plot_queue)
     try:
         for p in processes:
             p.join()

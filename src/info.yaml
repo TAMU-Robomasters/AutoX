@@ -32,6 +32,11 @@
     (profiles):
         (default):
             debug: true
+            # Which production engine start_engines() launches. One of:
+            #   full_state       -- ground-robot full-state auto-aim (default)
+            #   spinning_target  -- single fixed-radius spinning target (aerial rig)
+            # Overridden per robot profile (e.g. @AERIAL -> spinning_target).
+            engine: full_state
             classical:
                 cam_width: 1280
                 cam_height: 720
@@ -144,6 +149,13 @@
                 target_switch_distance_ratio: 0.6  # switch off the locked robot only if a
                                                    # different robot is closer than this
                                                    # fraction of the locked distance.
+
+            # Single fixed-radius, constant-rate spinning target (aerial rig):
+            # 3 panels 120deg apart at the SAME height, on arms of equal radius.
+            spinning_target:
+                radius_cm: 23.5   # arm/orbit radius (same for all 3 panels); measure rig
+                omega_rpm: 10     # known constant spin rate
+                n_panels: 3       # 3-fold symmetry: yaw wraps every 360/n degrees
 
             ballistic:
                 gravity: 981              # cm/s^2
@@ -427,6 +439,56 @@
                 solver_tol: 1.0e-4        # LM residual tolerance (metres)
                 lookahead_time: 0.14  
 
+        AERIAL:                    # aerial robot. Self-contained: just `@AERIAL`
+                                   # (bundles camera + classical detector + ballistics).
+            bot: aerial
+            engine: spinning_target   # single fixed-radius spinning-target auto-aim
+            hardware:
+                camera: usb_cam
+                camera_index: 0
+                camera_exposure: 10  # manual exposure (units 100µs); also drives
+                                      # auto_exposure=1 + exposure_time_absolute below.
+                camera_fps: 90
+                camera_width: 1280
+                camera_height: 720
+                camera_intrinsics_path: "mrcal_aerial_1280x720"
+                lens_correction_mode: normal
+                camera_controls:
+                    brightness:                0     # [-64, 64]   default 0
+                    contrast:                  0     # [0, 95]     default 0
+                    saturation:                56    # [0, 255]    default 56
+                    hue:                       0     # [-2000, 2000] default 0
+                    gamma:                     110   # [64, 300]   default 110
+                    gain:                      110   # [0, 1023]   default 0
+                    sharpness:                 0     # [0, 7]      default 0
+                    backlight_compensation:    54    # [36, 160]   default 54
+                    power_line_frequency:      2     # 0=off 1=50Hz 2=60Hz (US)
+                    white_balance_automatic:   1     # 1=auto; set 0 to use manual temp below
+                    white_balance_temperature: 4600  # [2800, 6500] K; only used when auto=0
+            classical:
+                cam_width: 1280
+                cam_height: 720
+                cam_fps: 90
+                cam_exposure: 35
+                blue_thresh: [ 200, 240 ]
+                red_thresh: [ 200, 240 ]
+                angle_diff_multiplier: 1
+                misalignment_multiplier: 2
+                expected_distance_multiplier: 0.5
+                height_ratio_multiplier: 1
+                angle_diff_thresh: 45
+                misalignment_thresh: 30
+                height_ratio_thresh: [ 0.5, 2.0 ]
+                score_thresh: 200
+                icon_adaptive_thresh: [ 101, -5 ]
+                icon_tolerance: 55
+            ballistic:                               # 17mm; tune all values on-robot
+                projectile_velocity: 2800            # cm/s; placeholder -- tune on-robot
+                feeder_delay_s: -0.07                # s; placeholder -- tune on-robot
+                frame_delay_offset_ms: 27            # ms; copied from sentry -- tune per-robot
+                barrel_offset: [0.0325, 0.150, 0.0] # [bx, by, bz] m; placeholder -- tune on-robot
+                yaw_offset: 0                        # deg; placeholder -- tune on-robot
+
         GPU=NONE:
             model:
                 hardware_acceleration: 'cpu'
@@ -593,3 +655,60 @@
             our_team_color: 'red'
         WE_BLUE:
             our_team_color: 'blue'
+
+        # -------------------------------------------------------------------
+        # Environment profiles: per-venue camera + color tuning.
+        #
+        # Opt-in flags that layer OVER the active robot profile and deep-merge,
+        # so you only list what changes for the venue (lighting differs a lot
+        # between a bright arena, an indoor lab, and outdoors). Activate one
+        # AFTER the robot profile so it wins on shared keys, e.g.:
+        #     uv run main.py @AERIAL @ARENA
+        #
+        # Each sets the v4l2 exposure (hardware.camera_exposure, units 100us),
+        # the v4l2 image controls (hardware.camera_controls -- saturation, gain,
+        # white balance, ...; applied via `v4l2-ctl --set-ctrl`), and the
+        # red/blue color-segmentation thresholds (classical.{red,blue}_thresh).
+        # Values are STARTING POINTS -- retune on-site with utils/tune_camera.py
+        # (controls) and utils/tune_color_thresholds.py (thresholds).
+        # -------------------------------------------------------------------
+        ARENA:                     # competition arena: bright, colored stage lighting
+            hardware:
+                camera_exposure: 6         # short exposure -> crisp LEDs, less motion blur
+                camera_controls:
+                    saturation:                90     # pop red/blue vs washed-out stage light
+                    gain:                      60
+                    brightness:                0
+                    contrast:                  0
+                    white_balance_automatic:   0      # lock WB so panel hue is stable
+                    white_balance_temperature: 4600
+            classical:
+                red_thresh:  [ 200, 240 ]
+                blue_thresh: [ 200, 240 ]
+
+        LAB:                       # indoor practice space: dimmer, mixed room light
+            hardware:
+                camera_exposure: 12        # longer exposure for a darker room
+                camera_controls:
+                    saturation:                56
+                    gain:                      140
+                    brightness:                0
+                    contrast:                  0
+                    white_balance_automatic:   1      # auto WB is fine under steady room light
+            classical:
+                red_thresh:  [ 190, 240 ]
+                blue_thresh: [ 190, 240 ]
+
+        OUTDOOR:                   # bright daylight: very high ambient, strong IR
+            hardware:
+                camera_exposure: 3         # shortest exposure to avoid blowing out in sun
+                camera_controls:
+                    saturation:                70
+                    gain:                      0
+                    brightness:                0
+                    contrast:                  0
+                    white_balance_automatic:   0
+                    white_balance_temperature: 5500   # daylight
+            classical:
+                red_thresh:  [ 210, 245 ]
+                blue_thresh: [ 210, 245 ]
