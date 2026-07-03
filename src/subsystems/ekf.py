@@ -15,8 +15,8 @@ into two sequential linear updates:
    panel's *measured* yaw, the panel's centre of rotation is at
    ``(x_obs - R*cos(yaw_obs), y_obs - R*sin(yaw_obs))``. That is a direct,
    linear measurement of ``(x_c, y_c)``.
-2. **Yaw with π/2-wrapped innovation.** The target has 4-fold rotational
-   symmetry, so the innovation is wrapped into ``(-π/4, π/4]`` before the
+2. **Yaw with 2π/3-wrapped innovation.** The target has 3-fold rotational
+   symmetry, so the innovation is wrapped into ``(-π/3, π/3]`` before the
    update. We do this update by hand because filterpy's ``update`` has no
    residual-override hook.
 
@@ -44,9 +44,13 @@ _H_POS = np.array(
 _H_YAW = np.array([[0, 0, 0, 0, 1, 0]], dtype=float)
 
 
+#def _wrap_yaw_innovation(y: float) -> float:
+#    """Wrap a yaw residual into ``(-π/4, π/4]`` (4-fold panel symmetry)."""
+#    return ((y + np.pi / 4.0) % (np.pi / 2.0)) - np.pi / 4.0
+
 def _wrap_yaw_innovation(y: float) -> float:
-    """Wrap a yaw residual into ``(-π/4, π/4]`` (4-fold panel symmetry)."""
-    return ((y + np.pi / 4.0) % (np.pi / 2.0)) - np.pi / 4.0
+    """Wrap a yaw residual into (-π/3, π/3] (3-fold panel symmetry)."""
+    return ((y + np.pi / 3.0) % (2.0 * np.pi / 3.0)) - np.pi / 3.0
 
 
 class EkfTracker:
