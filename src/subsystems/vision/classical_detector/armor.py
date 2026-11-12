@@ -14,12 +14,31 @@ armor_width_ration = 5.5 / 13
 
 
 class Lights:  # noqa
-    def __init__(self, cx, cy, w, h, angle):
+    def __init__(self, cx, cy, w, h, angle, rect=None):
         self.cx = cx
         self.cy = cy
         self.w = w
         self.h = h
         self.angle = angle
+        # Raw cv.minAreaRect result; kept so light_corners() can recover the
+        # exact rotated box (the angle above is re-normalised and lossy).
+        self.rect = rect
+
+    def corners(self):
+        """(4, 2) float corners of the light's rotated box, ordered TL, TR, BR, BL."""
+        box = cv.boxPoints(self.rect).astype(np.float64)
+        sums = box[:, 0] + box[:, 1]
+        diffs = box[:, 1] - box[:, 0]
+        return np.array([
+            box[np.argmin(sums)], box[np.argmin(diffs)],
+            box[np.argmax(sums)], box[np.argmax(diffs)],
+        ])
+
+
+def light_corners(pair):
+    """(2, 4, 2) light-bar corners of a light pair: [left, right] by x, each TL, TR, BR, BL."""
+    left, right = sorted(pair, key=lambda light: light.cx)
+    return np.stack([left.corners(), right.corners()])
 
 
 # TODO: consolidate this type with the other panel type
@@ -74,7 +93,7 @@ def bounding_boxes(contours, frame):
             #     box = cv.boxPoints(rect)  # Get 4 corner points of the rotated box
             #     box = np.intp(box)  # Convert to integer for drawing
             #     cv.drawContours(frame, [box], 0, (0, 255, 0), 2)
-            b_box = Lights(rect[0][0], rect[0][1], w, h, angle)
+            b_box = Lights(rect[0][0], rect[0][1], w, h, angle, rect=rect)
             b_boxes.append(b_box)
 
     return b_boxes

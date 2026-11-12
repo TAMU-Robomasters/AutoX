@@ -137,6 +137,7 @@
 
             # Full-state auto-aim engine loop + target-lock policy.
             autoaim:
+                engine: full_state              # full_state | ekf (src/engines/ekf_autoaim.py)
                 loop_hz: 200                    # rate CAP: the loop runs as fast as it can
                                                 # and only sleeps to avoid exceeding this.
                 target_reset_timeout_ms: 500    # lose the locked target after this long

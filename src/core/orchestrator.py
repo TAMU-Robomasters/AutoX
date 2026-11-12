@@ -85,7 +85,18 @@ def start_engines() -> None:
         )
         plot_proc.start()
 
-    processes = launch_system([FullStateAutoAimEngine], plot_queue=plot_queue)
+    engine_name = getattr(config.autoaim, "engine", None) or "full_state"
+    if engine_name == "ekf":
+        from src.engines.ekf_autoaim import EkfAutoAimEngine
+
+        engine_cls = EkfAutoAimEngine
+    elif engine_name == "full_state":
+        engine_cls = FullStateAutoAimEngine
+    else:
+        raise ValueError(f"config.autoaim.engine must be 'full_state' or 'ekf', got {engine_name!r}")
+    log.info("auto-aim engine: %s", engine_cls.__name__)
+
+    processes = launch_system([engine_cls], plot_queue=plot_queue)
     try:
         for p in processes:
             p.join()

@@ -54,6 +54,9 @@ class ArmorPanel:
             PanelTrackingModule (panel id k sits at theta + k*90deg). Only the
             parity (0&2 vs 1&3) is physically meaningful; ids are invalidated
             whenever the full-state estimator reinits.
+        light_corners: (2, 4, 2) float pixels of the panel's two light bars --
+            [left, right] by image x, corners [TL, TR, BR, BL] -- from each
+            light's minAreaRect. The EKF engine's measurement; None if unknown.
     """
 
     icon: Optional[int]
@@ -63,6 +66,7 @@ class ArmorPanel:
     contour: Optional[np.ndarray]
     yaw: float = 0.0
     id: Optional[int] = None
+    light_corners: Optional[np.ndarray] = None
 
 
 # ---------------------------------------------------------------------------
@@ -265,3 +269,25 @@ class FullStateAutoAimContext(Context):
 
     # -- ballistics ---------------------------------------------------------
     solution: Optional[BallisticSolution] = None  # produced by the active ballistic module
+
+
+@dataclass
+class EkfStateEstimate:
+    """Full-robot EKF state (see ``src/subsystems/estimation/ekf/model.py``).
+
+    ``x`` is the 10-state vector in the turret frame, metres:
+    ``[x, y, z_a, vx, vy, theta, omega, log ra, log rb, h]``.
+    ``timestamp`` is the frame timestamp the state was last updated/predicted to.
+    """
+
+    x: np.ndarray
+    timestamp: float
+    accepted_updates: int = 0
+
+
+@dataclass
+class EkfAutoAimContext(FullStateAutoAimContext):
+    """Context for the EKF auto-aim engine (adds the extrinsic + EKF state)."""
+
+    camera_to_turret: Optional[np.ndarray] = None   # produced by engine (MCU, this frame)
+    ekf_estimate: Optional[EkfStateEstimate] = None  # produced by ekf_estimation

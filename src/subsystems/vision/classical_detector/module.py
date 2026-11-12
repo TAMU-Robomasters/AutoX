@@ -60,6 +60,7 @@ def _process_pairs(pairs, frame) -> List[ArmorPanel]:
                     ),
                     contour=panel.outer_corners,
                     yaw=float(yaw_rad),
+                    light_corners=armor.light_corners(pair),
                 )
             )
     return panels
