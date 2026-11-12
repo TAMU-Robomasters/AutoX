@@ -26,13 +26,30 @@ class Lights:  # noqa
 
     def corners(self):
         """(4, 2) float corners of the light's rotated box, ordered TL, TR, BR, BL."""
-        box = cv.boxPoints(self.rect).astype(np.float64)
-        sums = box[:, 0] + box[:, 1]
-        diffs = box[:, 1] - box[:, 0]
-        return np.array([
-            box[np.argmin(sums)], box[np.argmin(diffs)],
-            box[np.argmax(sums)], box[np.argmax(diffs)],
-        ])
+        return order_corners(cv.boxPoints(self.rect).astype(np.float64))
+
+
+def order_corners(box):
+    """(TL, TR, BR, BL) of a minAreaRect box, ordered along the bar's long axis.
+
+    The old x+y / y-x argmin/argmax shortcut tied for a box at exactly 45 deg and
+    used one corner twice (a "triangle" light). Here: top = the two corners on the
+    upper side of the long axis, left/right = side of that axis. Same rule as
+    Full-Robot-EKF ``_order_corners`` (194a7c0).
+    """
+    c = box.mean(axis=0)
+    e1, e2 = box[1] - box[0], box[2] - box[1]          # boxPoints are consecutive
+    u = e1 if np.linalg.norm(e1) >= np.linalg.norm(e2) else e2
+    u = u / np.linalg.norm(u)
+    if u[1] > 0 or (u[1] == 0 and u[0] < 0):           # point the axis up (image -y)
+        u = -u
+    r = np.array([-u[1], u[0]])                        # right of the up axis
+    along, side = (box - c) @ u, (box - c) @ r
+    order = np.argsort(-along)
+    top, bot = order[:2], order[2:]
+    tl, tr = (top[0], top[1]) if side[top[0]] < side[top[1]] else (top[1], top[0])
+    bl, br = (bot[0], bot[1]) if side[bot[0]] < side[bot[1]] else (bot[1], bot[0])
+    return box[[tl, tr, br, bl]]
 
 
 def light_corners(pair):

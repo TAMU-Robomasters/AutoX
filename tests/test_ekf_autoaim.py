@@ -330,6 +330,21 @@ for light in pred[::-1]:  # feed right-then-left: light_corners must sort by x
 got = armor.light_corners(lights)
 err = np.abs(got - pred).max()
 assert err < 1.5, (err, got, pred)
+
+# Corner order is a real rectangle at any lean, including exactly 45 deg where
+# the old x+y / y-x shortcut picked one corner twice ("triangle" light).
+for lean in (-45.0, -20.0, 0.0, 20.0, 45.0, 90.0):
+    for w, h in ((8, 40), (40, 8)):
+        box = cv.boxPoints(((300.0, 200.0), (w, h), lean)).astype(np.float64)
+        tl, tr, br, bl = armor.order_corners(box)
+        assert len({tuple(np.round(p, 6)) for p in (tl, tr, br, bl)}) == 4, (lean, w, h)
+        top, bottom = (tl + tr) / 2, (bl + br) / 2
+        axis = top - bottom
+        assert np.linalg.norm(axis) > 30 and axis[1] <= 0, (lean, w, h, axis)  # long axis, up (or flat)
+        across = tr - tl
+        cos = across @ axis / (np.linalg.norm(across) * np.linalg.norm(axis))
+        assert abs(cos) < 1e-3, (lean, w, h, cos)                                 # square corners
+        assert axis[0] * across[1] - axis[1] * across[0] > 0, (lean, w, h)         # tr right of tl
 print("OK", err)
 """
 
