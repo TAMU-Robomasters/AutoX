@@ -1,0 +1,4 @@
+[submodule "src/ros2/sentry-nav"]
+	path = src/ros2/sentry-nav
+	url = git@github.com:TAMU-Robomasters/sentry-nav.git
+	branch = main
