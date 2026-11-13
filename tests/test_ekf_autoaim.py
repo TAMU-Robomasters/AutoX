@@ -6,7 +6,8 @@
 * the ported continuous-fire solver agrees with AutoX's solve_no_spin
 * the RobotStateEstimate remap (units, aim_z, radii)
 * the engine constructs (module wiring validates)
-* two-panel seed, no update on the seed frame, 0.5 s lost reset
+* PnP (IPPE) seed: two-panel / one-panel; no update on the seed frame
+* engine-level filter lifecycle: PnP seed + 0.5 s lost reset (subprocess)
 """
 
 import math
@@ -221,41 +222,74 @@ def test_seed_pair_recovers_centre_radii_height():
     assert not ekf.initialized
 
 
-def _module_and_panels(truth, ks, M):
+def _panels_px(truth, ks, M, px_noise=0.0, rng=None):
+    cam = model.Camera(K, DIST, M)
+    out = []
+    for k in ks:
+        lc = model.h(truth, cam, [k]).reshape(2, 4, 2)
+        if px_noise:
+            lc = lc + rng.normal(0, px_noise, lc.shape)
+        out.append(types.SimpleNamespace(light_corners=lc))
+    return out
+
+
+def _facing_extrinsic(truth):
+    return extrinsic(yaw=math.atan2(truth[Y], truth[X]) - math.pi / 2, pitch=0.05)
+
+
+@pytest.mark.parametrize("theta", [-0.8, -0.93, -1.05, -2.5])  # two panels in view
+def test_pnp_seed_two_panels_recovers_state(theta):
+    from src.subsystems.estimation.ekf import pnp_seed
+
+    truth = make_state(x=0.3, y=2.3, za=0.1, theta=theta, ra=0.22, rb=0.27, h=0.03)
+    M = _facing_extrinsic(truth)
+    vis = _facing_panels(truth, M)
+    assert len(vis) == 2, vis
+    panels = _panels_px(truth, vis, M, 0.3, np.random.default_rng(0))
+    seed = pnp_seed.choose_seed([pnp_seed.panel_candidates(p.light_corners, K, DIST, M) for p in panels])
+    assert seed is not None and seed.mode == "two_panels"
+    ekf = FullRobotEKF()
+    seed.apply(ekf)
+    exp = _expected_in_ekf_labels(truth, vis[0])
+    assert np.hypot(*(ekf.x[[X, Y]] - exp[[X, Y]])) < 0.03, (ekf.x[:3], exp[:3])
+    assert abs(model.wrap_angle(ekf.x[THETA] - exp[THETA])) < math.radians(3)
+    assert abs(ekf.x[ZA] - exp[ZA]) < 0.01 and abs(ekf.x[H] - exp[H]) < 0.01
+
+
+def test_pnp_seed_one_panel_uses_panel_pose():
+    from src.subsystems.estimation.ekf import pnp_seed
+    from src.subsystems.estimation.ekf.filter import INIT_RADIUS
+
+    truth = make_state(x=0.3, y=2.3, za=0.1, theta=-math.pi / 2 + 0.2, ra=0.22, rb=0.27, h=0.03)
+    M = _facing_extrinsic(truth)
+    (p0,) = _panels_px(truth, [0], M)
+    seed = pnp_seed.choose_seed([pnp_seed.panel_candidates(p0.light_corners, K, DIST, M)])
+    assert seed.mode == "one_panel"
+    assert np.allclose(seed.a.pos, model.panel_centers(truth)[0], atol=0.01), seed.a.pos
+    assert abs(model.wrap_angle(seed.a.yaw - truth[THETA])) < math.radians(3)
+    ekf = FullRobotEKF()
+    seed.apply(ekf)
+    n = np.array([math.cos(seed.a.yaw), math.sin(seed.a.yaw)])
+    assert np.allclose(ekf.x[[X, Y]], seed.a.pos[:2] - INIT_RADIUS * n)
+
+
+def test_module_seed_frame_is_not_an_update():
+    from src.subsystems.estimation.ekf import pnp_seed
     from src.subsystems.estimation.ekf.module import EkfEstimationModule
 
+    truth = make_state(x=0.3, y=2.3, za=0.1, theta=-0.5, ra=0.22, rb=0.27, h=0.03)
+    M = _facing_extrinsic(truth)
+    panels = _panels_px(truth, _facing_panels(truth, M), M)
     mod = EkfEstimationModule(types.SimpleNamespace(), K, DIST)
-    cam = model.Camera(K, DIST, M)
-    c = model.panel_centers(truth)
-    panels = [types.SimpleNamespace(position=c[k] * 100.0, yaw=truth[THETA] + k * math.pi / 2,
-                                    light_corners=model.h(truth, cam, [k]).reshape(2, 4, 2))
-              for k in ks]
-    return mod, panels
-
-
-def test_module_seeds_without_update_then_resets_when_lost():
-    from src.subsystems.estimation.ekf.module import LOST_TIME_S
-
-    truth = make_state(x=0.3, y=2.3, za=0.1, theta=0.6, ra=0.22, rb=0.27, h=0.03)
-    M = extrinsic(yaw=math.atan2(truth[Y], truth[X]) - math.pi / 2)
-    mod, panels = _module_and_panels(truth, [0, 1], M)
-    mod._observe(panels, 0.0, M)                                   # seed frame
-    assert mod.seed_mode == "two_panels" and mod.ekf.accepted_count == 0
+    mod._observe(panels, 0.0, M)                       # not seeded -> nothing
+    assert not mod.ekf.initialized
+    seed = pnp_seed.choose_seed([pnp_seed.panel_candidates(p.light_corners, K, DIST, M) for p in panels])
+    mod.seed(seed, 0.0)
+    mod._observe(panels, 0.0, M)                       # seed frame -> no update
+    assert mod.ekf.accepted_count == 0 and mod.last_accept_ts == 0.0
     mod._observe(panels, 0.01, M)
-    assert mod.ekf.accepted_count == 1
+    assert mod.ekf.accepted_count == 1 and mod.last_accept_ts == 0.01
 
-    # Detections far from the prediction keep getting gated out ...
-    moved = make_state(x=-0.8, y=3.5, za=0.1, theta=-0.2, ra=0.22, rb=0.27, h=0.03)
-    _, far = _module_and_panels(moved, [0], M)
-    far[0].light_corners = far[0].light_corners + 700.0           # beyond the 600 px init gate
-    for i in range(1, int(LOST_TIME_S / 0.02)):                   # up to 0.48 s rejected
-        mod._observe(far, 0.01 + 0.02 * i, M)
-        assert mod.n_resets == 0
-    # ... until LOST_TIME_S without an accepted update -> reset + re-seed here.
-    mod._observe(far, 0.01 + LOST_TIME_S + 0.02, M)
-    assert mod.n_resets == 1 and mod.seed_mode == "one_panel"
-    assert np.allclose(mod.ekf.x[[X, Y]] + 0.25 * np.array([math.cos(-0.2), math.sin(-0.2)]),
-                       model.panel_centers(moved)[0][:2], atol=1e-9)
 
 def test_solver_matches_solve_no_spin_for_nonspinning_target():
     """No spin, zero barrel offset: the ported solver is exact no-drag ballistics."""
@@ -312,7 +346,7 @@ vs._CameraInfo.intrinsics = lambda self: vs.Intrinsics(distortion_coefficients=n
 from src.engines.ekf_autoaim import EkfAutoAimEngine
 engine = EkfAutoAimEngine()
 names = [m.name for m in engine.modules]
-assert names == ["classical_detector", "robot_classification", "targeting",
+assert names == ["light_panel_detector", "robot_classification", "targeting",
                  "ekf_estimation", "ekf_continuous_fire", "full_state_shot_timing"], names
 
 # Detector light corners (minAreaRect -> Lights.corners) line up with h()'s order.
@@ -345,6 +379,44 @@ for lean in (-45.0, -20.0, 0.0, 20.0, 45.0, 90.0):
         cos = across @ axis / (np.linalg.norm(across) * np.linalg.norm(axis))
         assert abs(cos) < 1e-3, (lean, w, h, cos)                                 # square corners
         assert axis[0] * across[1] - axis[1] * across[0] > 0, (lean, w, h)         # tr right of tl
+
+# Engine-level filter lifecycle: PnP seed, seed frame not an update, 0.5 s lost reset.
+import math
+from src.engines.ekf_autoaim import LOST_TIME_S
+engine.estimation.initialize()
+engine._init_state()
+def facing(s, M):
+    out = []
+    for k in range(4):
+        phi = s[model.THETA] + k * np.pi / 2
+        to_cam = M[:3, 3] - model.panel_centers(s)[k]
+        if np.array([np.cos(phi), np.sin(phi), 0]) @ to_cam / np.linalg.norm(to_cam) > 0.5:
+            out.append(k)
+    return out
+def panels_px(s, M, shift=0.0):
+    c = model.Camera(K, np.zeros(5), M)
+    return [types.SimpleNamespace(light_corners=model.h(s, c, [k]).reshape(2, 4, 2) + shift)
+            for k in facing(s, M)]
+t = np.zeros(model.STATE_SIZE)
+t[[model.X, model.Y, model.ZA, model.THETA, model.H]] = [0.3, 2.3, 0.1, -0.93, 0.03]
+t[model.LOG_RA], t[model.LOG_RB] = np.log(0.22), np.log(0.27)
+M = np.eye(4)
+est = engine.estimation
+engine._maintain_filter(panels_px(t, M), 0.0, M)
+assert engine.seed_mode == "two_panels" and est.ekf.initialized
+est._observe(panels_px(t, M), 0.0, M)
+assert est.ekf.accepted_count == 0
+est._observe(panels_px(t, M), 0.01, M)
+assert est.ekf.accepted_count == 1
+far = panels_px(t, M, shift=700.0)             # beyond the 600 px gate
+for i in range(1, int(LOST_TIME_S / 0.02)):    # up to 0.48 s rejected: keep tracking
+    ts = 0.01 + 0.02 * i
+    engine._maintain_filter(far, ts, M); est._observe(far, ts, M)
+    assert engine.n_ekf_resets == 0 and est.last_accept_ts == 0.01
+moved = t.copy(); moved[[model.X, model.Y, model.THETA]] = [-0.4, 3.0, -0.8]
+engine._maintain_filter(panels_px(moved, M), 0.01 + LOST_TIME_S + 0.02, M)
+assert engine.n_ekf_resets == 1 and est.ekf.initialized
+assert np.hypot(est.ekf.x[model.X] + 0.4, est.ekf.x[model.Y] - 3.0) < 0.05, est.ekf.x[:3]
 print("OK", err)
 """
 

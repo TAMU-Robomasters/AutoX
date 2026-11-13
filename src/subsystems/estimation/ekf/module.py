@@ -1,21 +1,20 @@
 """Pipeline module wrapping the full-robot EKF for the EKF auto-aim engine.
 
 Contract:
-    inputs:  ``target_robot`` (its panels must carry ``light_corners``, and
-             ``position``/``yaw`` already transformed to the turret frame)
+    inputs:  ``target_robot`` (its panels must carry ``light_corners``; pixels)
     reads (engine-written): ``new_observation``, ``frame_ts``, ``camera_to_turret``
     outputs: ``ekf_estimate`` (raw 10-state, metres) and ``estimate`` (the same
              state remapped to AutoX's ``RobotStateEstimate`` so the existing
              ``FullStateShotTimingModule`` can consume it)
 
-On a fresh observation: seed if uninitialised (two adjacent panels when both
-are seen, else the closest one; no update on the seed frame), else predict to
-the frame timestamp and update with every target panel. If no update has been
-accepted for ``LOST_TIME_S`` the filter is reset and re-seeded from the current
-detection (awakening's TRACKING -> LOST -> re-init rule). On other ticks it
-re-publishes the last state untouched; the ballistic modules extrapolate from
-``timestamp`` themselves. (No detections at all for 500 ms is handled by the
-engine's ``target_reset_timeout_ms``, which calls ``reset()``.)
+Filter steps only (learner, 2026-11-12: wide logic lives in the engine). On a
+fresh observation, if the filter is seeded and not already at this frame,
+predict to the frame timestamp and update with every target panel; otherwise
+re-publish the last state untouched (the ballistic modules extrapolate from
+``timestamp`` themselves). WHEN to seed or reset -- PnP seed, 0.5 s lost reset,
+target loss/switch -- is decided by ``EkfAutoAimEngine``, which calls
+``seed()`` / ``reset()``. A seed sets the filter to the seed frame, so that
+frame is not also used as an update.
 """
 
 from typing import List, Optional, Tuple
@@ -26,14 +25,24 @@ from src.core.module import Module, mock, real
 from src.subsystems.estimation.ekf import model
 from src.subsystems.estimation.ekf.filter import FullRobotEKF
 from src.subsystems.estimation.ekf.model import (
-    H, OMEGA, THETA, VX, VY, X, Y, ZA,
+    OMEGA,
+    THETA,
+    VX,
+    VY,
+    ZA,
+    H,
+    X,
+    Y,
 )
-from src.types.autoaim import ArmorPanel, EkfStateEstimate, EnemyRobot, RobotStateEstimate
+from src.subsystems.estimation.ekf.pnp_seed import Seed
+from src.types.autoaim import (
+    ArmorPanel,
+    EkfStateEstimate,
+    EnemyRobot,
+    RobotStateEstimate,
+)
 
 METERS_TO_CM = 100.0
-# Reset + re-seed when no update has been accepted for this long (learner,
-# 2026-11-11; awakening's lost_time_thres, 0.5 s as in Full-Robot-EKF).
-LOST_TIME_S = 0.5
 
 
 def to_robot_state_estimate(est: EkfStateEstimate) -> RobotStateEstimate:
@@ -79,10 +88,8 @@ class EkfEstimationModule(Module):
         self.ekf = FullRobotEKF()
         self._K = camera_matrix
         self._dist = dist_coeffs
-        self._last_ts: Optional[float] = None
-        self._last_accept_ts: Optional[float] = None
-        self.n_resets = 0
-        self.seed_mode: Optional[str] = None
+        self._last_ts: Optional[float] = None       # frame the filter is at
+        self.last_accept_ts: Optional[float] = None  # last accepted update (or seed)
 
     def initialize(self) -> None:
         """Load the AutoX camera intrinsics (child process; mrcal on the robot)."""
@@ -94,9 +101,20 @@ class EkfEstimationModule(Module):
             self._dist = intr.distortion_coefficients
 
     def reset(self) -> None:
+        """Back to uninitialised (engine-decided)."""
         self.ekf.reset()
         self._last_ts = None
-        self._last_accept_ts = None
+        self.last_accept_ts = None
+
+    def seed(self, seed: Seed, frame_ts: float) -> None:
+        """Initialise the filter at ``frame_ts`` (engine-decided)."""
+        seed.apply(self.ekf)
+        self._last_ts = self.last_accept_ts = frame_ts
+
+    @property
+    def intrinsics(self) -> Tuple[np.ndarray, np.ndarray]:
+        """(camera_matrix, dist_coeffs) loaded in ``initialize``."""
+        return self._K, self._dist
 
     # ------------------------------------------------------------------
 
@@ -110,42 +128,16 @@ class EkfEstimationModule(Module):
         return self._outputs_now()
 
     def _observe(self, panels: List[ArmorPanel], frame_ts: float, cam_to_turret: np.ndarray) -> None:
-        usable = [
-            p for p in panels
-            if p.light_corners is not None and p.position is not None
-        ]
-        if not usable:
+        if not self.ekf.initialized or self._last_ts is None or frame_ts <= self._last_ts:
             return
-        cam = model.Camera(self._K, self._dist, cam_to_turret)
-
-        if (self.ekf.initialized and self._last_accept_ts is not None
-                and frame_ts - self._last_accept_ts > LOST_TIME_S):
-            self.log.warning("EKF: no accepted update for %.2f s; reset + re-seed",
-                             frame_ts - self._last_accept_ts)
-            self.ekf.reset()
-            self.n_resets += 1
-
-        if not self.ekf.initialized:
-            self._seed(usable)
-            self._last_ts = self._last_accept_ts = frame_ts
-            return                      # no update on the seed frame
-
-        dt = frame_ts - self._last_ts if self._last_ts is not None else 0.0
-        self.ekf.predict(dt)
+        corners = [p.light_corners for p in panels if p.light_corners is not None]
+        if not corners:
+            return
+        self.ekf.predict(frame_ts - self._last_ts)
         self._last_ts = frame_ts
-        if self.ekf.update([p.light_corners for p in usable], cam).accepted:
-            self._last_accept_ts = frame_ts
-
-    def _seed(self, panels: List[ArmorPanel]) -> None:
-        """Two adjacent panels -> ``seed_pair`` (closest = panel 0); else closest panel."""
-        ordered = sorted(panels, key=lambda p: float(np.linalg.norm(p.position)))
-        pos = [np.asarray(p.position, dtype=np.float64) / METERS_TO_CM for p in ordered]
-        for i in range(1, len(ordered)):
-            if self.ekf.seed_pair(pos[0], ordered[0].yaw, pos[i], ordered[i].yaw):
-                self.seed_mode = "two_panels"
-                return
-        self.ekf.seed(pos[0], ordered[0].yaw)
-        self.seed_mode = "one_panel"
+        cam = model.Camera(self._K, self._dist, cam_to_turret)
+        if self.ekf.update(corners, cam).accepted:
+            self.last_accept_ts = frame_ts
 
     def _outputs_now(self) -> Tuple[Optional[EkfStateEstimate], Optional[RobotStateEstimate]]:
         if not self.ekf.initialized or self._last_ts is None:

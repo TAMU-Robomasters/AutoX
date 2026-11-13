@@ -3,15 +3,14 @@
 Takes detected armor panels and groups them into three enemy robot types
 (sentry, hero, standard) based on their icon IDs.
 """
-import numpy as np
 
 from typing import List, Optional, Tuple
 
 from src.core.module import Module, real
 from src.types.autoaim import (
+    ICON_TO_ROBOT_NAME,
     ArmorPanel,
     EnemyRobot,
-    ICON_TO_ROBOT_NAME,
     FullStateAutoAimContext,
 )
 
@@ -32,7 +31,6 @@ class RobotClassificationModule(Module[FullStateAutoAimContext]):
         self, panels: Optional[List[ArmorPanel]]
     ) -> Tuple[Optional[EnemyRobot], Optional[EnemyRobot], Optional[EnemyRobot]]:
         """Bucket panels into three robots by their icon ID."""
-
         # Create empty robots
         sentry = EnemyRobot(name="sentry")
         hero = EnemyRobot(name="hero")
@@ -54,6 +52,6 @@ class RobotClassificationModule(Module[FullStateAutoAimContext]):
 
         for robot in (sentry, hero, standard):
             if robot.panels:
-                robot.panels.sort(key=lambda p: np.linalg.norm(p.position))  # Sort panels by distance
+                robot.panels.sort(key=lambda p: p.distance_cm())  # closest first
 
         return sentry, hero, standard

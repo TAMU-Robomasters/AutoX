@@ -5,8 +5,6 @@ Picks which enemy robot to engage based on the closest panel distance.
 
 from typing import List, Optional
 
-import numpy as np
-
 from src.core.module import Module, real
 from src.types.autoaim import (
     EnemyRobot,
@@ -16,14 +14,7 @@ from src.types.autoaim import (
 
 def _closest_panel_distance(robot: EnemyRobot) -> float:
     """Return the Euclidean distance of the robot's closest panel, or inf."""
-    if not robot.panels:
-        return float("inf")
-    distances = [
-        float(np.linalg.norm(p.position))
-        for p in robot.panels
-        if p.position is not None
-    ]
-    return min(distances) if distances else float("inf")
+    return min((p.distance_cm() for p in robot.panels), default=float("inf"))
 
 
 class TargetingModule(Module[FullStateAutoAimContext]):

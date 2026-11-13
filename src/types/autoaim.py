@@ -57,6 +57,9 @@ class ArmorPanel:
         light_corners: (2, 4, 2) float pixels of the panel's two light bars --
             [left, right] by image x, corners [TL, TR, BR, BL] -- from each
             light's minAreaRect. The EKF engine's measurement; None if unknown.
+        range_cm: rough distance from the light-bar pixel length, set by the
+            no-PnP ``LightPanelDetectorModule`` (position is None there). Only
+            for ranking panels/robots by closeness; see ``distance_cm``.
     """
 
     icon: Optional[int]
@@ -67,6 +70,15 @@ class ArmorPanel:
     yaw: float = 0.0
     id: Optional[int] = None
     light_corners: Optional[np.ndarray] = None
+    range_cm: Optional[float] = None
+
+    def distance_cm(self) -> float:
+        """Closeness key: |position| from PnP if known, else ``range_cm``, else inf."""
+        if self.position is not None:
+            return float(np.linalg.norm(self.position))
+        if self.range_cm is not None:
+            return float(self.range_cm)
+        return float("inf")
 
 
 # ---------------------------------------------------------------------------

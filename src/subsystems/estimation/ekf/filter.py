@@ -28,7 +28,17 @@ import numpy as np
 
 from src.subsystems.estimation.ekf import model
 from src.subsystems.estimation.ekf.model import (
-    H, LOG_RA, LOG_RB, OMEGA, STATE_SIZE, THETA, VX, VY, X, Y, ZA,
+    LOG_RA,
+    LOG_RB,
+    OMEGA,
+    STATE_SIZE,
+    THETA,
+    VX,
+    VY,
+    ZA,
+    H,
+    X,
+    Y,
 )
 from src.subsystems.estimation.robot_constants import measure_adjacent_pair
 
@@ -37,6 +47,41 @@ H_MIN, H_MAX = -0.10, 0.10
 INIT_RADIUS = 0.25        # m; also the seed's inward offset from the panel
 INIT_H = 0.0              # m; AutoX seeds from a measured panel, so start level
 PAIR_RADIUS_RANGE = (0.05, 0.50)  # m; sanity range for a two-panel seed (as Full-Robot-EKF)
+
+
+@dataclass
+class PairGeometry:
+    """Spin centre, radii and height offset measured from two adjacent panels."""
+
+    centre: np.ndarray   # (2,) x, y of the spin centre (m)
+    ra: float            # panel a (even) radius (m)
+    rb: float            # panel b (odd) radius (m)
+    h: float             # z_b - z_a = z_odd - z_even (m)
+
+
+def pair_geometry(
+    pos_a: np.ndarray, yaw_a: float, pos_b: np.ndarray, yaw_b: float,
+) -> Optional[PairGeometry]:
+    """Spin centre / radii / h from two adjacent panels (turret frame, metres).
+
+    ``measure_adjacent_pair`` checks the yaws are ~90 deg apart; the centre is
+    c = (p_b . u_a) u_a + (p_a . u_b) u_b. None unless the centre is behind
+    both panels with radii in ``PAIR_RADIUS_RANGE``.
+    """
+    pa = np.asarray(pos_a, dtype=np.float64)
+    pb = np.asarray(pos_b, dtype=np.float64)
+    m = measure_adjacent_pair(pa, yaw_a, pb, yaw_b)
+    if m is None:
+        return None
+    u_a = -np.array([np.cos(yaw_a), np.sin(yaw_a)])   # inward, panel a -> centre
+    u_b = -np.array([np.cos(yaw_b), np.sin(yaw_b)])
+    ra = float((pb[:2] - pa[:2]) @ u_a)                # signed: > 0 = behind a
+    c = pa[:2] + ra * u_a
+    rb = float((c - pb[:2]) @ u_b)                     # > 0 = behind b
+    lo, hi = PAIR_RADIUS_RANGE
+    if not (lo <= ra <= hi and lo <= rb <= hi):
+        return None
+    return PairGeometry(centre=c, ra=m.r_a, rb=m.r_b, h=-m.dz)  # dz = z_a - z_b
 
 
 @dataclass
@@ -106,30 +151,18 @@ class FullRobotEKF:
     ) -> bool:
         """Initialise from two adjacent PnP panels (turret frame, metres).
 
-        Panel a becomes panel 0 (theta = its yaw), b is the odd panel next to it.
-        Centre, both radii and h come from ``measure_adjacent_pair``
-        (c = (p_b . u_a) u_a + (p_a . u_b) u_b). Returns False, leaving the filter
-        untouched, if the yaws are not ~90 deg apart or the centre is not behind
-        both panels within ``PAIR_RADIUS_RANGE``; the caller then seeds from one.
+        Panel a becomes panel 0 (theta = its yaw), b is the odd panel next to it;
+        centre, radii and h from :func:`pair_geometry`. Returns False, leaving
+        the filter untouched, if the pair is not geometrically valid.
         """
-        pa = np.asarray(pos_a, dtype=np.float64)
-        pb = np.asarray(pos_b, dtype=np.float64)
-        m = measure_adjacent_pair(pa, yaw_a, pb, yaw_b)
-        if m is None:
+        g = pair_geometry(pos_a, yaw_a, pos_b, yaw_b)
+        if g is None:
             return False
-        u_a = -np.array([np.cos(yaw_a), np.sin(yaw_a)])   # inward, panel a -> centre
-        u_b = -np.array([np.cos(yaw_b), np.sin(yaw_b)])
-        ra = float((pb[:2] - pa[:2]) @ u_a)                # signed: > 0 = behind a
-        c = pa[:2] + ra * u_a
-        rb = float((c - pb[:2]) @ u_b)                     # > 0 = behind b
-        lo, hi = PAIR_RADIUS_RANGE
-        if not (lo <= ra <= hi and lo <= rb <= hi):
-            return False
-        self.seed(pa, yaw_a)                               # P0, counters, z_a, theta
-        self.x[X:Y + 1] = c
-        self.x[LOG_RA] = np.clip(np.log(m.r_a), LOG_R_MIN, LOG_R_MAX)
-        self.x[LOG_RB] = np.clip(np.log(m.r_b), LOG_R_MIN, LOG_R_MAX)
-        self.x[H] = np.clip(-m.dz, H_MIN, H_MAX)           # dz = z_a - z_b; H = z_odd - z_even
+        self.seed(np.asarray(pos_a, dtype=np.float64), yaw_a)  # P0, counters, z_a, theta
+        self.x[X:Y + 1] = g.centre
+        self.x[LOG_RA] = np.clip(np.log(g.ra), LOG_R_MIN, LOG_R_MAX)
+        self.x[LOG_RB] = np.clip(np.log(g.rb), LOG_R_MIN, LOG_R_MAX)
+        self.x[H] = np.clip(g.h, H_MIN, H_MAX)
         return True
 
     # ------------------------------------------------------------------

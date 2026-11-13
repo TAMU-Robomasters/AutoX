@@ -3,8 +3,16 @@
 Selected with ``config.autoaim.engine: ekf`` (``src/core/orchestrator.py``).
 
 Per fresh frame:
-    detect (classical, panels carry light_corners) -> classify -> sticky target
+    detect (LightPanelDetectorModule: light-bar pixel corners, NO PnP)
+    -> classify -> sticky target (closeness = light-bar pixel length)
     -> MCU camera->turret transform at the frame's capture time
+    -> engine-level filter lifecycle (learner, 2026-11-12: wide logic lives here,
+       not in the modules):
+         * no accepted update for LOST_TIME_S -> reset the EKF;
+         * EKF uninitialised -> PnP (IPPE) on the target's panels, seed
+           (two adjacent panels -> seed_pair, else one panel); the seed frame
+           is not also an update;
+         * target lost (no detection for target_reset_timeout_ms) / switched -> reset
     -> EKF predict to frame_ts + update on the target's panels (pixel corners,
        extrinsic inside h(x))
 Every tick with a target:
@@ -24,28 +32,41 @@ solution is confident and the EKF has passed its own tracking threshold
 
 import time
 from multiprocessing import Queue
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 
 from src.core.engine import Engine
 from src.drivers.mcu import McuDriver
 from src.drivers.video_stream import CameraDriver
-from src.engines.full_state_autoaim import _transform_panels_to_turret_frame
 from src.subsystems.ballistics.ekf_continuous_fire import EkfContinuousFireModule
 from src.subsystems.ballistics.full_state_shot_timing import FullStateShotTimingModule
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import CVState
+from src.subsystems.estimation.ekf import pnp_seed
 from src.subsystems.estimation.ekf.model import (
-    H, LOG_RA, LOG_RB, OMEGA, THETA, X, Y, ZA,
+    LOG_RA,
+    LOG_RB,
+    OMEGA,
+    THETA,
+    ZA,
+    H,
+    X,
+    Y,
 )
 from src.subsystems.estimation.ekf.module import EkfEstimationModule
 from src.subsystems.targeting import TargetingModule, _closest_panel_distance
-from src.subsystems.vision import ClassicalDetectorModule
+from src.subsystems.vision.classical_detector.light_module import (
+    LightPanelDetectorModule,
+)
 from src.toolbox.globals import config
 from src.toolbox.timeout import Timeout
-from src.types.autoaim import EkfAutoAimContext, EnemyRobot
+from src.types.autoaim import ArmorPanel, EkfAutoAimContext, EnemyRobot
+
+# Reset + re-seed when the EKF has accepted no update for this long while the
+# target is still detected (awakening's lost_time_thres; learner, 2026-11-11).
+LOST_TIME_S = 0.5
 
 
 class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
@@ -59,7 +80,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         self._queue = queue  # accepted for orchestrator parity; no live plot yet
         self.ctx = EkfAutoAimContext()
 
-        self.detection = ClassicalDetectorModule(self.ctx)
+        self.detection = LightPanelDetectorModule(self.ctx)
         self.classification = RobotClassificationModule(self.ctx)
         self.targeting = TargetingModule(self.ctx)
         self.estimation = EkfEstimationModule(self.ctx)
@@ -105,6 +126,8 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         self._obs_count = 0
         self._no_obs_count = 0
         self._fps_window_start = time.perf_counter()
+        self.n_ekf_resets = 0
+        self.seed_mode: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Target lock
@@ -220,9 +243,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         if panels is not None:
             panels = [
                 p for p in panels
-                if p.position is not None
-                and np.all(np.isfinite(p.position))
-                and (p.orientation is None or np.all(np.isfinite(p.orientation)))
+                if p.light_corners is not None and np.all(np.isfinite(p.light_corners))
             ]
             self.ctx.panels = panels
         if not panels or len(panels) >= 3:  # >2 panels of one robot can't face us
@@ -255,10 +276,32 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
             return
         _yaw, _pitch, camera_to_turret = transformation
         self.ctx.camera_to_turret = np.asarray(camera_to_turret, dtype=np.float64)
-        # Turret-frame position/yaw are only used to seed the EKF; the update
-        # itself uses the raw pixel light corners + the extrinsic in h(x).
-        _transform_panels_to_turret_frame(panels, self.ctx.camera_to_turret)
         self.ctx.new_observation = True
+        self._maintain_filter(self.ctx.target_robot.panels, frame_ts, self.ctx.camera_to_turret)
+
+    def _maintain_filter(
+        self, panels: List[ArmorPanel], frame_ts: float, cam_to_turret: np.ndarray
+    ) -> None:
+        """Lost reset + PnP seed, before the estimation module's predict/update."""
+        est = self.estimation
+        if (est.ekf.initialized and est.last_accept_ts is not None
+                and frame_ts - est.last_accept_ts > LOST_TIME_S):
+            self.log.warning("EKF: no accepted update for %.2f s; reset + re-seed",
+                             frame_ts - est.last_accept_ts)
+            est.reset()
+            self.n_ekf_resets += 1
+        if est.ekf.initialized:
+            return
+        K, dist = est.intrinsics
+        cands = [pnp_seed.panel_candidates(p.light_corners, K, dist, cam_to_turret)
+                 for p in panels[:2]]          # closest first (classification sort)
+        seed = pnp_seed.choose_seed(cands)
+        if seed is None:
+            self.log.debug("EKF seed: PnP found no camera-facing pose")
+            return
+        est.seed(seed, frame_ts)
+        self.seed_mode = seed.mode
+        self.log.info("EKF seeded (%s)", seed.mode)
 
     def _publish_solution(self, fire_mode: int) -> None:
         solution = self.ctx.solution
@@ -315,3 +358,5 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         self._obs_count = 0
         self._no_obs_count = 0
         self._fps_window_start = time.perf_counter()
+        self.n_ekf_resets = 0
+        self.seed_mode: Optional[str] = None
