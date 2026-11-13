@@ -44,12 +44,15 @@ from src.subsystems.ballistics.full_state_shot_timing import FullStateShotTiming
 from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import CVState
-from src.subsystems.estimation.ekf import pnp_seed
+from src.subsystems.estimation.ekf import model, pnp_seed
+from src.subsystems.estimation.ekf.draw import draw_ekf_overlay
 from src.subsystems.estimation.ekf.model import (
     LOG_RA,
     LOG_RB,
     OMEGA,
     THETA,
+    VX,
+    VY,
     ZA,
     H,
     X,
@@ -203,7 +206,8 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         self.cv_state = CVState.NO_TARGET.value
 
         frame = self.frames.latest()
-        if frame is not None and frame.seq != self._last_seq:
+        fresh_frame = frame is not None and frame.seq != self._last_seq
+        if fresh_frame:
             self._last_seq = frame.seq
             self.ctx.frame = frame.data
             self.ctx.frame_ts = frame.timestamp
@@ -220,6 +224,8 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
 
         if self.ctx.target_robot is not None:
             self._publish_solution(self._run_estimation_and_ballistics())
+        if fresh_frame and config.log.display_live_frames:
+            self._draw_overlay()
 
         self._pace(start)
 
@@ -302,6 +308,41 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         est.seed(seed, frame_ts)
         self.seed_mode = seed.mode
         self.log.info("EKF seeded (%s)", seed.mode)
+
+    def _draw_overlay(self) -> None:
+        """Full-Robot-EKF-style debug view on the detector's frame (once per new frame)."""
+        est = self.estimation
+        ekf = est.ekf
+        res = est.last_result if self.ctx.new_observation else None
+        x = ekf.x if ekf.initialized else None
+        cam = None
+        if x is not None and self.ctx.camera_to_turret is not None:
+            K, dist = est.intrinsics
+            cam = model.Camera(K, dist, self.ctx.camera_to_turret)
+        dets = [p.light_corners for p in (self.ctx.panels or []) if p.light_corners is not None]
+        target = self.ctx.target_robot.name if self.ctx.target_robot is not None else "-"
+        hud = [
+            f"target: {target}   det: {len(dets)}   mode: {CVState(self.cv_state).name}",
+            f"init:   {self.seed_mode if x is not None else 'waiting'}   resets {self.n_ekf_resets}",
+            f"upd:    {'yes' if res is not None and res.accepted else 'no'}"
+            f"   n {ekf.accepted_count}   EKF {est.last_filter_ms:5.2f} ms",
+        ]
+        if res is not None and res.innovation is not None:
+            hud.append(f"err:    {float(np.sqrt(np.mean(res.innovation ** 2))):6.2f} px")
+        if x is not None:
+            hud += [
+                f"x:      {x[X]:7.3f} m",
+                f"y:      {x[Y]:7.3f} m",
+                f"z_a:    {x[ZA]:7.3f} m",
+                f"|v|:    {float(np.hypot(x[VX], x[VY])):6.3f} m/s",
+                f"omega:  {x[OMEGA]:7.3f} rad/s",
+                f"theta:  {np.degrees(x[THETA]):7.2f} deg",
+                f"ra:     {np.exp(x[LOG_RA]):6.3f} m",
+                f"rb:     {np.exp(x[LOG_RB]):6.3f} m",
+                f"h:      {x[H]:6.3f} m",
+                f"vis:    {model.visible_panels(x, cam) if cam is not None else '-'}",
+            ]
+        draw_ekf_overlay(display.windows["main"].img, x, cam, dets, hud)
 
     def _publish_solution(self, fire_mode: int) -> None:
         solution = self.ctx.solution

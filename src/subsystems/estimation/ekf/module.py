@@ -17,13 +17,14 @@ target loss/switch -- is decided by ``EkfAutoAimEngine``, which calls
 frame is not also used as an update.
 """
 
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
 
 from src.core.module import Module, mock, real
 from src.subsystems.estimation.ekf import model
-from src.subsystems.estimation.ekf.filter import FullRobotEKF
+from src.subsystems.estimation.ekf.filter import FullRobotEKF, UpdateResult
 from src.subsystems.estimation.ekf.model import (
     OMEGA,
     THETA,
@@ -90,6 +91,8 @@ class EkfEstimationModule(Module):
         self._dist = dist_coeffs
         self._last_ts: Optional[float] = None       # frame the filter is at
         self.last_accept_ts: Optional[float] = None  # last accepted update (or seed)
+        self.last_result: Optional[UpdateResult] = None  # last update (debug overlay)
+        self.last_filter_ms = 0.0
 
     def initialize(self) -> None:
         """Load the AutoX camera intrinsics (child process; mrcal on the robot)."""
@@ -105,6 +108,7 @@ class EkfEstimationModule(Module):
         self.ekf.reset()
         self._last_ts = None
         self.last_accept_ts = None
+        self.last_result = None
 
     def seed(self, seed: Seed, frame_ts: float) -> None:
         """Initialise the filter at ``frame_ts`` (engine-decided)."""
@@ -133,10 +137,13 @@ class EkfEstimationModule(Module):
         corners = [p.light_corners for p in panels if p.light_corners is not None]
         if not corners:
             return
+        t0 = time.perf_counter()
         self.ekf.predict(frame_ts - self._last_ts)
         self._last_ts = frame_ts
         cam = model.Camera(self._K, self._dist, cam_to_turret)
-        if self.ekf.update(corners, cam).accepted:
+        self.last_result = self.ekf.update(corners, cam)
+        self.last_filter_ms = (time.perf_counter() - t0) * 1e3
+        if self.last_result.accepted:
             self.last_accept_ts = frame_ts
 
     def _outputs_now(self) -> Tuple[Optional[EkfStateEstimate], Optional[RobotStateEstimate]]:

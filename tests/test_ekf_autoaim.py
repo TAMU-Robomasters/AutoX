@@ -291,6 +291,22 @@ def test_module_seed_frame_is_not_an_update():
     assert mod.ekf.accepted_count == 1 and mod.last_accept_ts == 0.01
 
 
+def test_draw_overlay_marks_predicted_and_detected_lights():
+    from src.subsystems.estimation.ekf.draw import draw_ekf_overlay
+
+    truth = make_state(x=0.3, y=2.3, za=0.1, theta=-0.93, ra=0.22, rb=0.27, h=0.03)
+    M = _facing_extrinsic(truth)
+    cam = model.Camera(K, DIST, M)
+    dets = [p.light_corners for p in _panels_px(truth, _facing_panels(truth, M), M)]
+    img = np.zeros((720, 1280, 3), np.uint8)
+    draw_ekf_overlay(img, truth, cam, dets, ["hud"])
+    assert (img == (0, 0, 255)).all(axis=2).sum() > 50      # red predicted corners
+    assert (img == (0, 255, 0)).all(axis=2).sum() > 50      # green detected bars
+    blank = np.zeros_like(img)
+    draw_ekf_overlay(blank, None, None, [], ["waiting"])    # not seeded: HUD only
+    assert blank.any()
+
+
 def test_solver_matches_solve_no_spin_for_nonspinning_target():
     """No spin, zero barrel offset: the ported solver is exact no-drag ballistics."""
     s = make_state(x=0.5, y=4.0, za=0.2, vx=0.4, vy=0.2, theta=-math.pi / 2,
@@ -417,6 +433,15 @@ moved = t.copy(); moved[[model.X, model.Y, model.THETA]] = [-0.4, 3.0, -0.8]
 engine._maintain_filter(panels_px(moved, M), 0.01 + LOST_TIME_S + 0.02, M)
 assert engine.n_ekf_resets == 1 and est.ekf.initialized
 assert np.hypot(est.ekf.x[model.X] + 0.4, est.ekf.x[model.Y] - 3.0) < 0.05, est.ekf.x[:3]
+
+# Debug overlay draws on the main window without errors (seeded and not).
+from src.subsystems.display import display
+display.windows["main"].set_image(np.zeros((720, 1280, 3), np.uint8))
+engine.ctx.camera_to_turret = M
+engine.ctx.panels = panels_px(moved, M)
+engine._draw_overlay()
+assert display.windows["main"].img.any()
+est.reset(); engine._draw_overlay()
 print("OK", err)
 """
 
