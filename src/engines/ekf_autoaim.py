@@ -3,8 +3,11 @@
 Selected with ``config.autoaim.engine: ekf`` (``src/core/orchestrator.py``).
 
 Per fresh frame:
-    detect (LightPanelDetectorModule: light-bar pixel corners, NO PnP)
-    -> classify -> sticky target (closeness = light-bar pixel length)
+    detect (LightPanelDetectorModule: light-bar pixel corners, NO PnP, NO icon)
+    -> single target = the (up to) 2 closest panels (closeness = light-bar
+       pixel length). No icons -> no robot classification / target switching
+       (learner, 2026-11-13); target lost after target_reset_timeout_ms
+       without panels.
     -> MCU camera->turret transform at the frame's capture time
     -> engine-level filter lifecycle (learner, 2026-11-12: wide logic lives here,
        not in the modules):
@@ -12,7 +15,7 @@ Per fresh frame:
          * EKF uninitialised -> PnP (IPPE) on the target's panels, seed
            (two adjacent panels -> seed_pair, else one panel); the seed frame
            is not also an update;
-         * target lost (no detection for target_reset_timeout_ms) / switched -> reset
+         * target lost (no detection for target_reset_timeout_ms) -> reset
     -> EKF predict to frame_ts + update on the target's panels (pixel corners,
        extrinsic inside h(x))
 Every tick with a target:
@@ -41,7 +44,6 @@ from src.drivers.mcu import McuDriver
 from src.drivers.video_stream import CameraDriver
 from src.subsystems.ballistics.ekf_continuous_fire import EkfContinuousFireModule
 from src.subsystems.ballistics.full_state_shot_timing import FullStateShotTimingModule
-from src.subsystems.classification import RobotClassificationModule
 from src.subsystems.display import display
 from src.subsystems.embedded_communicator import CVState
 from src.subsystems.estimation.ekf import model, pnp_seed
@@ -59,7 +61,7 @@ from src.subsystems.estimation.ekf.model import (
     Y,
 )
 from src.subsystems.estimation.ekf.module import EkfEstimationModule
-from src.subsystems.targeting import TargetingModule, _closest_panel_distance
+from src.subsystems.targeting import SingleTargetModule
 from src.subsystems.vision.classical_detector.light_module import (
     LightPanelDetectorModule,
 )
@@ -84,8 +86,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         self.ctx = EkfAutoAimContext()
 
         self.detection = LightPanelDetectorModule(self.ctx)
-        self.classification = RobotClassificationModule(self.ctx)
-        self.targeting = TargetingModule(self.ctx)
+        self.targeting = SingleTargetModule(self.ctx)
         self.estimation = EkfEstimationModule(self.ctx)
         self.continuous_fire = EkfContinuousFireModule(self.ctx)
         self.shot_timing = FullStateShotTimingModule(self.ctx)
@@ -93,7 +94,6 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         super().__init__(
             modules=[
                 self.detection,
-                self.classification,
                 self.targeting,
                 self.estimation,
                 self.continuous_fire,
@@ -108,7 +108,6 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
     def initialize(self) -> None:
         cfg = config.autoaim
         self.target_timeout = Timeout(duration=cfg.target_reset_timeout_ms / 1e3)
-        self._switch_ratio = float(cfg.target_switch_distance_ratio)
         self._period = 1.0 / float(cfg.loop_hz)
         self._omega_spin = float(config.ballistic.omega_spin_threshold)
         self._yaw_offset = float(np.deg2rad(config.ballistic.yaw_offset))
@@ -144,55 +143,14 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         self._current_target_name = None
         self.estimation.reset()
 
-    def _on_target_switch(self, name: str) -> None:
-        self.log.info("target switch %r -> %r; EKF reset", self._current_target_name, name)
-        self._current_target_name = name
-        self.estimation.reset()
-
-    def _robot_by_name(self, name: Optional[str]) -> Optional[EnemyRobot]:
-        if name is None:
-            return None
-        return {"sentry": self.ctx.sentry, "hero": self.ctx.hero, "standard": self.ctx.standard}.get(name)
-
-    def _select_target(self) -> bool:
-        """Sticky target selection (same policy as the full-state engine).
-
-        Returns True iff the chosen target was freshly observed this frame.
-        """
+    def _select_target(self) -> None:
+        """Single target (SingleTargetModule: the 2 closest panels); refresh the timeout."""
         self.targeting.run()
-        closest = self.ctx.target_robot
-        locked_name = self._current_target_name
-        locked = self._robot_by_name(locked_name)
-
-        if locked is not None and locked.panels:
-            self.target_timeout.reset()
-            target: Optional[EnemyRobot] = locked
-            if (
-                closest is not None
-                and closest.name != locked_name
-                and _closest_panel_distance(closest)
-                < self._switch_ratio * _closest_panel_distance(locked)
-            ):
-                target = closest
-            fresh = True
-        elif self.target_timeout.is_expired or locked_name is None:
-            target = closest
-            fresh = closest is not None
-            if fresh:
-                self.target_timeout.reset()
-        else:
-            target = self._prev_target_robot
-            fresh = False
-
-        self.ctx.target_robot = target
-        if target is None:
-            if self.target_timeout.is_expired:
-                self._on_target_lost()
-            return False
-        if target.name != self._current_target_name:
-            self._on_target_switch(target.name)
-        self._prev_target_robot = target
-        return fresh
+        self.target_timeout.reset()
+        if self._current_target_name is None:
+            self.log.info("target acquired")
+            self._current_target_name = self.ctx.target_robot.name
+        self._prev_target_robot = self.ctx.target_robot
 
     # ------------------------------------------------------------------
     # Main loop
@@ -243,7 +201,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
         return CVState.CONTINUOUS_FIRE.value
 
     def _process_frame(self) -> None:
-        """Vision + sticky targeting + MCU transform for a fresh frame."""
+        """Vision + single target + MCU transform for a fresh frame."""
         self.detection.run()
         panels = self.ctx.panels
         if panels is not None:
@@ -252,7 +210,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
                 if p.light_corners is not None and np.all(np.isfinite(p.light_corners))
             ]
             self.ctx.panels = panels
-        if not panels or len(panels) >= 3:  # >2 panels of one robot can't face us
+        if not panels:
             self.ctx.new_observation = False
             if self.target_timeout.is_expired:
                 self._on_target_lost()
@@ -260,10 +218,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
                 self.ctx.target_robot = self._prev_target_robot
             return
 
-        self.classification.run()
-        if not self._select_target() or self.ctx.target_robot is None:
-            self.ctx.new_observation = False
-            return
+        self._select_target()
 
         frame_ts = self.ctx.frame_ts if self.ctx.frame_ts is not None else time.perf_counter()
         measured_delay_ms = int((time.perf_counter() - frame_ts) * 1000)
@@ -300,7 +255,7 @@ class EkfAutoAimEngine(Engine[EkfAutoAimContext]):
             return
         K, dist = est.intrinsics
         cands = [pnp_seed.panel_candidates(p.light_corners, K, dist, cam_to_turret)
-                 for p in panels[:2]]          # closest first (classification sort)
+                 for p in panels[:2]]          # closest first (detector sort)
         seed = pnp_seed.choose_seed(cands)
         if seed is None:
             self.log.debug("EKF seed: PnP found no camera-facing pose")

@@ -307,6 +307,24 @@ def test_draw_overlay_marks_predicted_and_detected_lights():
     assert blank.any()
 
 
+def test_visible_panels_facing_and_inside_hfov():
+    cam = model.Camera(K, DIST, extrinsic(yaw=0.0, offset=(0.0, 0.0, 0.0)))  # looks along +y
+    assert math.degrees(cam.hfov_left + cam.hfov_right) == pytest.approx(
+        2 * math.degrees(math.atan(640 / 900)))
+    face_on = -math.pi / 2                                   # panel 0 normal points at the camera
+    s = make_state(x=0.0, y=2.3, za=0.0, theta=face_on)
+    assert model.visible_panels(s, cam) == [0]               # 1 & 3 edge-on, 2 faces away
+    s = make_state(x=0.0, y=2.3, za=0.0, theta=face_on + math.radians(30))
+    assert model.visible_panels(s, cam) == [0, 3]            # turned: two panels face us
+    s = make_state(x=3.0, y=2.3, za=0.0, theta=face_on)      # 52 deg off-axis > 35 deg half-FOV
+    assert model.visible_panels(s, cam) == []
+    # sentry intrinsics (mrcal_1280x720): off-centre cx -> 17.2 deg left, 20.4 deg right
+    sentry = model.Camera(np.array([[1879.331269, 0, 581.7010921], [0, 1876.147602, 197.7595886],
+                                    [0, 0, 1]]), np.zeros(5), np.eye(4))
+    assert math.degrees(sentry.hfov_left) == pytest.approx(17.2, abs=0.05)
+    assert math.degrees(sentry.hfov_right) == pytest.approx(20.4, abs=0.05)
+
+
 def test_solver_matches_solve_no_spin_for_nonspinning_target():
     """No spin, zero barrel offset: the ported solver is exact no-drag ballistics."""
     s = make_state(x=0.5, y=4.0, za=0.2, vx=0.4, vy=0.2, theta=-math.pi / 2,
@@ -362,7 +380,7 @@ vs._CameraInfo.intrinsics = lambda self: vs.Intrinsics(distortion_coefficients=n
 from src.engines.ekf_autoaim import EkfAutoAimEngine
 engine = EkfAutoAimEngine()
 names = [m.name for m in engine.modules]
-assert names == ["light_panel_detector", "robot_classification", "targeting",
+assert names == ["light_panel_detector", "single_target",
                  "ekf_estimation", "ekf_continuous_fire", "full_state_shot_timing"], names
 
 # Detector light corners (minAreaRect -> Lights.corners) line up with h()'s order.
@@ -433,6 +451,24 @@ moved = t.copy(); moved[[model.X, model.Y, model.THETA]] = [-0.4, 3.0, -0.8]
 engine._maintain_filter(panels_px(moved, M), 0.01 + LOST_TIME_S + 0.02, M)
 assert engine.n_ekf_resets == 1 and est.ekf.initialized
 assert np.hypot(est.ekf.x[model.X] + 0.4, est.ekf.x[model.Y] - 3.0) < 0.05, est.ekf.x[:3]
+
+# No-icon light detector (Full-Robot-EKF light extraction + armor.pairing).
+from src.subsystems.vision.classical_detector import light_module as lm
+t2 = np.zeros(model.STATE_SIZE)
+t2[[model.X, model.Y, model.THETA]] = [0.1, 1.5, -np.pi / 2 + 0.3]
+t2[model.LOG_RA] = t2[model.LOG_RB] = np.log(0.22)
+c2 = model.Camera(K, np.zeros(5), np.eye(4))
+lc = model.h(t2, c2, [0]).reshape(2, 4, 2)
+for colour, bgr, lower in (("red", (0, 0, 255), 200), ("blue", (255, 0, 0), lm.BLUE_DIFF_LOWER)):
+    img = np.zeros((720, 1280, 3), np.uint8)
+    for light in lc:
+        cv.fillConvexPoly(img, np.round(light).astype(np.int32), bgr)
+    cv.fillConvexPoly(img, np.array([[100, 100], [160, 100], [160, 110], [100, 110]], np.int32), bgr)
+    found = lm.detect_panels(img, colour, lower, K[1, 1])
+    assert len(found) == 1, (colour, len(found))
+    assert found[0].icon is None and found[0].position is None
+    assert np.abs(found[0].light_corners - lc).max() < 2.0, (colour, found[0].light_corners, lc)
+    assert 100 < found[0].range_cm < 220, found[0].range_cm
 
 # Debug overlay draws on the main window without errors (seeded and not).
 from src.subsystems.display import display

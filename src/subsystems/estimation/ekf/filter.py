@@ -220,6 +220,8 @@ class FullRobotEKF:
     def associate(self, detections: List[np.ndarray], cam: model.Camera) -> Dict[int, int]:
         """Greedy nearest-pixel-centre match: detection index -> visible panel k."""
         vis = model.visible_panels(self.x, cam)
+        if not vis:
+            return {}
         pred = model.panel_pixel_centers(self.x, cam, vis)
         if pred is None:
             return {}

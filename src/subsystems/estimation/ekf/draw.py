@@ -2,7 +2,8 @@
 
 * blue dots  -- predicted light-bar corners of all 4 panels (hidden ones too)
 * red dots   -- predicted corners of the panels the filter matches against
-                (``model.visible_panels``), drawn on top
+                (``model.visible_panels``: facing the camera and inside the
+                horizontal FOV), drawn on top
 * green      -- detected light bars (what the EKF update uses)
 * yellow     -- HUD text, top left
 

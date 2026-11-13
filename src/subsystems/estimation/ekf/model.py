@@ -138,10 +138,19 @@ class Camera:
         camera_matrix: np.ndarray,
         dist_coeffs: np.ndarray,
         camera_to_turret: np.ndarray,
+        image_width: int = 1280,
     ) -> None:
         self.K = np.asarray(camera_matrix, dtype=np.float64)
+        # Horizontal FOV from the intrinsics: a ray at angle phi from the optical
+        # axis lands at u = cx + fx tan(phi), so the image edges u = 0 and u = W
+        # are at -atan(cx / fx) and +atan((W - cx) / fx) (cx off-centre -> the two
+        # half-angles differ). Sentry mrcal_1280x720: 17.2 + 20.4 = 37.6 deg.
+        fx, cx = self.K[0, 0], self.K[0, 2]
+        self.hfov_left = float(np.arctan(cx / fx))
+        self.hfov_right = float(np.arctan((image_width - cx) / fx))
         self.dist = np.asarray(dist_coeffs, dtype=np.float64).reshape(-1)
         M = np.asarray(camera_to_turret, dtype=np.float64)
+        self.position = M[:3, 3].copy()   # camera centre in the turret frame
         T = np.linalg.inv(M)  # turret -> relabeled camera (right, fwd, up)
         # Fold the relabel to OpenCV axes (x=right, y=-up, z=fwd) into the rotation.
         relabel = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
@@ -184,9 +193,26 @@ def h_jacobian(
 
 
 def visible_panels(x: np.ndarray, cam: Camera) -> List[int]:
-    """The 3 panels nearest the camera (the one directly behind is culled)."""
-    depth = cam.to_camera(panel_centers(x))[:, 2]
-    return sorted(np.argsort(depth)[:3].tolist())
+    """Panels that face the camera AND whose centre is inside the horizontal FOV.
+
+    Full-Robot-EKF rule (learner design, 2026-11-11; ported 2026-11-13, replacing
+    "the 3 panels nearest the camera"):
+      * facing: the panel's outward normal and the panel->camera direction,
+        both horizontal (turret x-y plane, 15 deg tilt ignored), have a positive
+        dot product (angle < 90 deg);
+      * in view: the centre is in front of the camera and its horizontal angle
+        from the optical axis is within [-hfov_left, hfov_right].
+    """
+    centers = panel_centers(x)
+    k = np.arange(4)
+    phi = x[THETA] + k * (np.pi / 2.0)
+    normals = np.column_stack([np.cos(phi), np.sin(phi)])
+    to_cam = cam.position[:2] - centers[:, :2]
+    facing = np.einsum("ij,ij->i", normals, to_cam) > 0.0
+    pc = cam.to_camera(centers)                      # OpenCV: x right, z forward
+    ang = np.arctan2(pc[:, 0], pc[:, 2])
+    in_view = (pc[:, 2] > 0.0) & (ang >= -cam.hfov_left) & (ang <= cam.hfov_right)
+    return [int(i) for i in k[facing & in_view]]
 
 
 def panel_pixel_centers(x: np.ndarray, cam: Camera, panels: List[int]) -> Optional[np.ndarray]:
