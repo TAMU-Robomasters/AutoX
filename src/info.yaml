@@ -120,7 +120,7 @@
                 testing:
                     record_interval: 0 # records one out of every x frames, <1 to not record
             log:
-                disable_all_logging: true # kill switch: logging.disable() everywhere (perf)
+                disable_all_logging: false # kill switch: logging.disable() everywhere (perf)
                 disable_print: false
                 # stdlib-logging setup (src/toolbox/logger.py): one queue, the
                 # orchestrator parent owns the console/file handlers.
@@ -153,7 +153,7 @@
             # Single fixed-radius, constant-rate spinning target (aerial rig):
             # 3 panels 120deg apart at the SAME height, on arms of equal radius.
             spinning_target:
-                radius_cm: 23.5   # arm/orbit radius (same for all 3 panels); measure rig
+                radius_cm: 55.3   # arm/orbit radius (same for all 3 panels); measure rig
                 omega_rpm: 10     # known constant spin rate
                 n_panels: 3       # 3-fold symmetry: yaw wraps every 360/n degrees
 
@@ -446,7 +446,7 @@
             hardware:
                 camera: usb_cam
                 camera_index: 0
-                camera_exposure: 10  # manual exposure (units 100µs); also drives
+                camera_exposure: 12  # manual exposure (units 100µs); also drives
                                       # auto_exposure=1 + exposure_time_absolute below.
                 camera_fps: 90
                 camera_width: 1280
@@ -459,7 +459,7 @@
                     saturation:                56    # [0, 255]    default 56
                     hue:                       0     # [-2000, 2000] default 0
                     gamma:                     110   # [64, 300]   default 110
-                    gain:                      110   # [0, 1023]   default 0
+                    gain:                      50   # [0, 1023]   default 0
                     sharpness:                 0     # [0, 7]      default 0
                     backlight_compensation:    54    # [36, 160]   default 54
                     power_line_frequency:      2     # 0=off 1=50Hz 2=60Hz (US)
@@ -483,7 +483,7 @@
                 icon_adaptive_thresh: [ 101, -5 ]
                 icon_tolerance: 55
             ballistic:                               # 17mm; tune all values on-robot
-                projectile_velocity: 2800            # cm/s; placeholder -- tune on-robot
+                projectile_velocity: 2300            # cm/s; placeholder -- tune on-robot
                 feeder_delay_s: -0.07                # s; placeholder -- tune on-robot
                 frame_delay_offset_ms: 27            # ms; copied from sentry -- tune per-robot
                 barrel_offset: [0.0325, 0.150, 0.0] # [bx, by, bz] m; placeholder -- tune on-robot

@@ -1,0 +1,13 @@
+{
+    'lensmodel':  'LENSMODEL_PINHOLE',
+
+    # intrinsics are fx,fy,cx,cy,distortion0,distortion1,....
+    'intrinsics': [ 1776.938507, 1781.010519, 657.9193457, 345.6661615,],
+
+    'rt_cam_ref': [ 0, 0, 0, 0, 0, 0,],
+    'extrinsics': [ 0, 0, 0, 0, 0, 0,], # for compatibility with mrcal < 2.5
+
+    'imagersize': [ 1280, 720,],
+
+
+}
