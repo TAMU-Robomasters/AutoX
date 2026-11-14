@@ -515,6 +515,14 @@
             estimation:
                 method: kalman_filter
 
+        # Auto-aim engine selection (default: autoaim.engine above = full_state).
+        ENGINE=FULL_STATE:             # src/engines/full_state_autoaim.py
+            autoaim:
+                engine: full_state
+        ENGINE=EKF:                    # 10-state full-robot EKF (src/engines/ekf_autoaim.py)
+            autoaim:
+                engine: ekf
+
             
         CAMERA=ZED:
             hardware:
